@@ -1,0 +1,413 @@
+@{
+    ViewData["Title"] = "Sökresultat";
+}
+
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>@ViewData["Title"] - STL Forum</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true"/>
+    <style>
+        .body2 {
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 0;
+        }
+
+        .navbar {
+            position: absolute !important;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            padding: 0 20px !important;
+        }
+
+        .hero-image {
+            background-image: url('@Url.Content("~/images/herobild.png")');
+            height: 50vh;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-size: cover;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .hero-text {
+            text-align: center;
+            color: white;
+            max-width: 800px;
+            padding: 20px;
+        }
+
+        .hero-text h2 {
+            font-size: 2rem;
+            margin-bottom: 30px;
+        }
+
+        .search-container {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+            display: flex;
+            align-items: stretch;
+            max-width: 600px;
+            margin: 0 auto;
+            overflow: hidden;
+            border: 1px solid #e0e0e0;
+        }
+
+        .search-input {
+            border: none;
+            outline: none;
+            flex: 1;
+            padding: 16px 20px;
+            font-size: 16px;
+            background: white;
+            color: #333;
+        }
+
+        .search-input::placeholder {
+            color: #888;
+            font-weight: 400;
+        }
+
+        .search-btn {
+            background-color: #28a745;
+            border: none;
+            border-radius: 0;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            transition: background-color 0.3s ease;
+            min-width: 60px;
+        }
+
+        .search-btn:hover {
+            background-color: #218838;
+        }
+
+        .navbar-brand img {
+            transition: transform 0.3s ease;
+        }
+
+        .navbar-brand:hover img {
+            transform: scale(1.1);
+        }
+
+        .question-card {
+            background-color: #f8f9fa;
+            transition: box-shadow 0.2s ease;
+        }
+
+        .question-card:hover {
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .answer-item {
+            border-left: 3px solid #007bff;
+        }
+
+        .answer-form {
+            border: 2px dashed #28a745;
+        }
+
+        .alert {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1050;
+            min-width: 300px;
+        }
+
+        .btn_red.tillbaka {
+            background: transparent;
+            border: none;
+            padding: 10px 0;
+            margin-bottom: 30px;
+        }
+
+        .btn_red.tillbaka span.icon {
+            background-image: url('@Url.Content("~/images/tillbaka.png")') no-repeat;
+            float: left;
+            width: 20px;
+            height: 20px;
+            background-size: contain;
+        }
+
+        .tillbaka a {
+            text-decoration: none;
+            color: black;
+            font-size: 1rem;
+            padding-left: 1rem;
+        }
+
+        .tillbaka a:hover {
+            color: #095EA9;
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body class="body2">
+
+<!-- Success/Error Messages -->
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        @TempData["SuccessMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        @TempData["ErrorMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+
+<header>
+    <!-- Navbar som ligger ovanpå hero-bilden -->
+    <nav class="navbar navbar-light justify-content-between">
+        <!-- Klickbar logga till vänster -->
+        <a href="@Url.Action("Index", "Social")" class="navbar-brand">
+            <img src="~/images/stl-loga.png" width="auto" height="50" alt="STL Logga">
+        </a>
+        
+        <div class="d-flex align-items-center">
+            @if (User.IsInRole("SuperAdmin"))
+            {
+                <a asp-controller="Social" asp-action="HubSpotOwnerMappings" class="btn btn-outline-light btn-sm me-2">
+                    HubSpot Owners
+                </a>
+            }
+            <a asp-controller="Home" asp-action="Profile" class="btn btn-outline-light btn-sm me-2">
+                Min profil
+            </a>
+            <!-- Klickbar logga ut till höger -->
+            <a href="@Url.Action("Logout", "Home")" class="navbar-brand">
+                <img src="~/images/loggaut.png" width="auto" height="40" alt="Logga ut">
+            </a>
+        </div>
+    </nav>
+
+    <!-- Hero sektion med bakgrundsbild -->
+    <div class="hero-image">
+        <div class="hero-text">
+            <h2><b>Sökresultat</b> för "@ViewBag.SearchTerm"</h2>
+            
+            <!-- Förbättrat sökformulär -->
+            <form asp-controller="Social" asp-action="Search" method="get" class="search-container">
+                <input type="search" name="searchTerm" class="search-input" placeholder="Sök med hjälp av nyckelord..." value="@ViewBag.SearchTerm">
+                <button type="submit" class="search-btn">
+                    <img src="~/images/sok.png" alt="Sök" width="auto" height="25">
+                </button>
+            </form>
+        </div>
+    </div>
+</header>
+
+<main>
+    <div class="container my-4">
+        <!-- Back Button -->
+        <div class="btn btn_red tillbaka">
+            <span class="icon"></span>
+            <a href="@Url.Action("Index", "Social")">tillbaka</a>
+        </div>
+
+        <!-- Search Results -->
+        <div class="row">
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">📊 Sökresultat</h5>
+                        <span class="badge bg-info">@((ViewBag.SearchResults as List<WebApplication2.Models.Question>)?.Count ?? 0) resultat</span>
+                    </div>
+                    <div class="card-body">
+                        @if (ViewBag.SearchResults != null && ((List<WebApplication2.Models.Question>)ViewBag.SearchResults).Any())
+                        {
+                            <div class="alert alert-info">
+                                <small>💡 <strong>Sorterade efter likes:</strong> Mest gillade frågor visas först, sedan nyaste.</small>
+                            </div>
+                            
+                            @foreach (var question in (List<WebApplication2.Models.Question>)ViewBag.SearchResults)
+                            {
+                                <div class="question-card border rounded p-3 mb-3">
+                                    <!-- Question Header -->
+                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                        <h6 class="fw-bold mb-0">
+                                            <a asp-controller="Social" asp-action="QuestionDetail" asp-route-id="@question.Id" 
+                                               class="text-decoration-none text-dark">
+                                                @Html.Raw(question.Title)
+                                            </a>
+                                        </h6>
+                                        <small class="text-muted">Datum: @question.CreatedDate.ToString("dd MMMM yyyy, HH:mm", new System.Globalization.CultureInfo("sv-SE"))</small>
+                                    </div>
+                                    
+                                    <!-- Question Content -->
+                                    <p class="mb-3">@Html.Raw(question.Content)</p>
+
+                                    <!-- File Attachment Display -->
+                                    @if (!string.IsNullOrEmpty(question.AttachmentPath))
+                                    {
+                                        <div class="attachment-section mb-3 p-2 bg-light rounded">
+                                            <small class="text-muted">
+                                                Bilaga: <a href="~/@question.AttachmentPath" target="_blank" class="text-decoration-none text-primary">
+                                                    <strong>@question.AttachmentFileName</strong>
+                                                </a>
+                                                <span class="ms-2 badge bg-secondary">Bilaga</span>
+                                            </small>
+                                        </div>
+                                    }
+                                    
+                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <small class="text-muted">
+                                            Användare: @(ViewBag.UserNames?.ContainsKey(question.UserId ?? "") == true ? ViewBag.UserNames[question.UserId] : "Okänd användare") |
+                                            Likes: @question.Likes | 
+                                            Svar: @question.Answers.Count
+                                            @if (question.IsFrequentlyAsked)
+                                            {
+                                                <span class="badge bg-warning text-dark ms-2">Vanlig fråga</span>
+                                            }
+                                        </small>
+        
+                                        <div>
+                                            <!-- Like Button -->
+                                            <form asp-controller="Social" asp-action="LikeQuestion" method="post" class="d-inline">
+                                                <input type="hidden" name="questionId" value="@question.Id">
+                                                <button type="submit" class="btn btn-outline-danger btn-sm">Gilla</button>
+                                            </form>
+            
+                                            <!-- Admin FAQ Toggle -->
+                                            @if (ViewBag.UserRole == "SuperAdmin")
+                                            {
+                                                <form asp-controller="Social" asp-action="ToggleFAQ" method="post" class="d-inline ms-1">
+                                                    <input type="hidden" name="questionId" value="@question.Id">
+                                                    @if (question.IsFrequentlyAsked)
+                                                    {
+                                                        <button type="submit" class="btn btn-warning btn-sm" title="Ta bort från vanliga frågor">
+                                                            Ta bort FAQ
+                                                        </button>
+                                                    }
+                                                    else
+                                                    {
+                                                        <button type="submit" class="btn btn-outline-warning btn-sm" title="Lägg till som vanlig fråga">
+                                                            Markera FAQ
+                                                        </button>
+                                                    }
+                                                </form>
+                                            }
+            
+                                            <!-- Toggle Answers Button -->
+                                            <button class="btn btn-outline-primary btn-sm ms-1" type="button" 
+                                                    data-bs-toggle="collapse" data-bs-target="#answers-@question.Id">
+                                                Visa svar (@question.Answers.Count)
+                                            </button>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Answers Section (samma som Index.cshtml) -->
+                                    <div class="collapse" id="answers-@question.Id">
+                                        
+                                        <!-- Existing Answers -->
+                                        @if (question.Answers.Any())
+                                        {
+                                            <div class="answers-list mb-3">
+                                                <h6 class="fw-bold text-primary mb-2">💬 Svar:</h6>
+                                                @foreach (var answer in question.Answers.OrderBy(a => a.CreatedDate))
+                                                {
+                                                    <div class="answer-item bg-light rounded p-2 mb-2">
+                                                        <p class="mb-1">@Html.Raw(answer.Content)</p>
+        
+                                                        @if (!string.IsNullOrEmpty(answer.AttachmentPath))
+                                                        {
+                                                            <div class="attachment-section mb-1 p-1 bg-white rounded">
+                                                                <small class="text-muted">
+                                                                    Bilaga: <a href="~/@answer.AttachmentPath" target="_blank" class="text-decoration-none text-primary">
+                                                                        <strong>@answer.AttachmentFileName</strong>
+                                                                    </a>
+                                                                </small>
+                                                            </div>
+                                                        }
+        
+                                                        <small class="text-muted">
+                                                            Användare: @answer.UserId | Datum: @answer.CreatedDate.ToString("dd MMMM yyyy, HH:mm", new System.Globalization.CultureInfo("sv-SE"))
+                                                        </small>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                        
+                                        <!-- Answer Form -->
+                                        <div class="answer-form bg-light rounded p-3">
+                                            <h6 class="fw-bold mb-2">✍️ Svara på denna fråga:</h6>
+                                            <form asp-controller="Social" asp-action="CreateAnswer" method="post">
+                                                <input type="hidden" name="questionId" value="@question.Id">
+                                                <div class="mb-2">
+                                                    <textarea name="content" class="form-control" rows="3" 
+                                                              placeholder="Skriv ditt svar här..." required></textarea>
+                                                </div>
+                                                <button type="submit" class="btn btn-success btn-sm">📤 Skicka svar</button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        }
+                        else
+                        {
+                            <div class="text-center py-4">
+                                <h4 class="text-muted">😕 Inga resultat hittades</h4>
+                                <p class="text-muted">Prova att söka med andra ord eller <a asp-controller="Social" asp-action="Index">gå tillbaka till Social Feed</a></p>
+                                <p class="text-muted">Eller <a asp-controller="Social" asp-action="CreateQuestion">skapa en ny fråga</a> för att hjälpa andra!</p>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="col-lg-4">
+                <!-- Ongoing Contests -->
+                <div class="card mb-4">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="mb-0">🏆 Pågående tävlingar</h5>
+                    </div>
+                    <div class="card-body">
+                        @if (ViewBag.Contests != null && ((List<WebApplication2.Models.Contest>)ViewBag.Contests).Any())
+                        {
+                            @foreach (var contest in (List<WebApplication2.Models.Contest>)ViewBag.Contests)
+                            {
+                                <div class="border-bottom pb-2 mb-2">
+                                    <h6 class="fw-bold mb-1">@contest.Name</h6>
+                                    <small class="text-muted d-block">
+                                        📅 Slutar: @contest.EndDate.ToString("yyyy-MM-dd")
+                                    </small>
+                                    <a asp-controller="Social" asp-action="ContestLeaderboard" asp-route-id="@contest.Id" class="btn btn-outline-primary btn-sm mt-2">
+                                        Visa full leaderboard
+                                    </a>
+                                </div>
+                            }
+                        }
+                        else
+                        {
+                            <p class="text-muted small">Inga aktiva tävlingar.</p>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

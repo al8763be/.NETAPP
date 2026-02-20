@@ -1,0 +1,403 @@
+@using System.Text.Encodings.Web
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@inject UserManager<IdentityUser> UserManager
+@model List<Microsoft.AspNetCore.Identity.IdentityUser>
+@{
+ViewData["Title"] = "User Administration";
+var usersWithRoles = ViewBag.UsersWithRoles as List<(Microsoft.AspNetCore.Identity.IdentityUser User, bool IsAdmin)>;
+}
+
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>@ViewData["Title"] - STL Forum</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true"/>
+    <style>
+        .body2 {
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 0;
+        }
+
+        .navbar {
+            position: absolute !important;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            padding: 0 20px !important;
+        }
+
+        .hero-image {
+            background-image: url('@Url.Content("~/images/herobild.png")');
+            height: 50vh;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-size: cover;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .hero-text {
+            text-align: center;
+            color: white;
+            max-width: 800px;
+            padding: 20px;
+        }
+
+        .hero-text h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .hero-text h3 {
+            font-size: 1.2rem;
+            font-weight: 300;
+        }
+
+        .navbar-brand img {
+            transition: transform 0.3s ease;
+        }
+
+        .navbar-brand:hover img {
+            transform: scale(1.1);
+        }
+
+        .search-container {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+            display: flex;
+            align-items: stretch;
+            max-width: 600px;
+            margin: 0 auto;
+            overflow: hidden;
+            border: 1px solid #e0e0e0;
+        }
+
+        .search-input {
+            border: none;
+            outline: none;
+            flex: 1;
+            padding: 16px 20px;
+            font-size: 16px;
+            background: white;
+            color: #333;
+        }
+
+        .search-input::placeholder {
+            color: #888;
+            font-weight: 400;
+        }
+
+        .search-btn {
+            background-color: #28a745;
+            border: none;
+            border-radius: 0;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            transition: background-color 0.3s ease;
+            min-width: 60px;
+        }
+
+        .search-btn:hover {
+            background-color: #218838;
+        }
+
+        .alert {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1050;
+            min-width: 300px;
+        }
+
+        .skapaanvandare {
+            max-width: 700px;
+        }
+    </style>
+</head>
+<body class="body2">
+
+<!-- Success/Error Messages -->
+@if (TempData["SuccessMessage"] != null)
+{
+<div class="alert alert-success alert-dismissible fade show" role="alert">
+    @TempData["SuccessMessage"]
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+}
+
+@if (TempData["ErrorMessage"] != null)
+{
+<div class="alert alert-danger alert-dismissible fade show" role="alert">
+    @TempData["ErrorMessage"]
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+}
+
+<header>
+    <!-- Navbar som ligger ovanpå hero-bilden -->
+    <nav class="navbar navbar-light justify-content-between">
+        <!-- Klickbar logga till vänster -->
+        <a href="@Url.Action("Index", "Social")" class="navbar-brand">
+            <img src="~/images/stl-loga.png" width="auto" height="50" alt="STL Logga">
+        </a>
+
+        <div class="d-flex align-items-center">
+            @if (User.IsInRole("SuperAdmin"))
+            {
+                <a asp-controller="Social" asp-action="HubSpotOwnerMappings" class="btn btn-outline-light btn-sm me-2">
+                    HubSpot Owners
+                </a>
+            }
+            <a asp-controller="Home" asp-action="Profile" class="btn btn-outline-light btn-sm me-2">
+                Min profil
+            </a>
+            <!-- Klickbar logga ut till höger -->
+            <a href="@Url.Action("Logout", "Home")" class="navbar-brand">
+                <img src="~/images/loggaut.png" width="auto" height="40" alt="Logga ut">
+            </a>
+        </div>
+    </nav>
+
+    <!-- Hero sektion med bakgrundsbild -->
+    <div class="hero-image">
+        <div class="hero-text">
+            <h1>Välkommen Admin!</h1>
+            <h3>Här kan du skapa, ta bort och söka efter användare.</h3>
+        </div>
+    </div>
+</header>
+
+<main>
+    <!-- Create New User -->
+    <div class="d-flex flex-column align-items-center" style="min-height: 30vh; width: 100%;">
+        <h3 class="text-center p-3 w-100">Skapa användare</h3>
+        <form asp-controller="Home" asp-action="AddUser" method="post" class="skapaanvandare w-100">
+            @Html.AntiForgeryToken()
+            <div class="row align-items-end">
+                <div class="col-md-4 mb-3">
+                    <label for="employeeNumber" class="form-label">Anställningsnummer</label>
+                    <input type="text" class="form-control" id="employeeNumber" name="employeeNumber" required placeholder="T.ex. EMP001">
+                </div>
+                <div class="col-md-8 mb-3 d-flex align-items-end">
+                    <button type="submit" class="btn btn-success btn-sm" style="height: 38px; width: auto; min-width: 80px;">Skapa</button>
+                    <small class="ms-3 text-muted">Lösenord genereras automatiskt</small>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-12">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="makeAdmin" name="makeAdmin" value="true">
+                        <label class="form-check-label" for="makeAdmin">
+                            Gör användaren till admin
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- Search Users -->
+    <div class="d-flex justify-content-center my-4">
+        <form asp-controller="Home" asp-action="SearchUsers" method="get" class="search-container">
+            <input type="search" name="searchTerm" class="search-input" placeholder="Sök efter användarnamn..." value="@ViewBag.SearchTerm">
+            <button type="submit" class="search-btn">
+                <img src="~/images/sok.png" alt="Sök" width="auto" height="25">
+            </button>
+        </form>
+    </div>
+
+    <!-- Användartabell -->
+    <div class="container mt-4">
+        @if (Model.Any() && usersWithRoles != null)
+        {
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                <tr>
+                    <th>Användarnamn</th>
+                    <th>Behörighet</th>
+                    <th>Åtgärder</th>
+                </tr>
+                </thead>
+                <tbody>
+                @foreach (var userInfo in usersWithRoles)
+                {
+                var user = userInfo.User;
+                var isAdmin = userInfo.IsAdmin;
+                var isCurrentUser = user.Id == ViewContext.HttpContext.User.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
+
+                <tr class="@(isAdmin ? "table-warning" : "")">
+                    <td>
+                        <strong>@user.UserName</strong>
+                        @if (isCurrentUser)
+                        {
+                        <span class="badge bg-primary">Du</span>
+                        }
+                    </td>
+                    <td>
+                        @if (isAdmin)
+                        {
+                        <span class="badge bg-warning text-dark">Admin</span>
+                        }
+                        else
+                        {
+                        <span class="badge bg-secondary">Användare</span>
+                        }
+                    </td>
+                    <td>
+                        @if (!isCurrentUser)
+                        {
+                            var encodedUserName = JavaScriptEncoder.Default.Encode(user.UserName ?? string.Empty);
+    
+                            // ADMIN FORM
+                            var adminConfirmText = isAdmin
+                                ? $"Ta bort admin-behörighet från {encodedUserName}?"
+                                : $"Ge admin-behörighet till {encodedUserName}?";
+    
+                            <form asp-controller="Home" asp-action="ToggleAdminRole" method="post" class="d-inline me-2">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="userId" value="@user.Id" />
+                                <button type="submit"
+                                        class="btn @(isAdmin ? "btn-outline-warning" : "btn-warning") btn-sm"
+                                        onclick='return confirm("@adminConfirmText")'>
+                                    @(isAdmin ? "Ta bort admin" : "Gör till admin")
+                                </button>
+                            </form>
+
+                            // COMMENTOR FORM
+                            var isCommenter = await UserManager.IsInRoleAsync(user, "Kommenterare");
+                            var commenterConfirmText = isCommenter
+                                ? $"Ta bort kommenterarrättighet från {encodedUserName}?"
+                                : $"Ge kommenterarrättighet till {encodedUserName}?";
+
+                            <form asp-controller="Social" asp-action="@(isCommenter ? "TaBortKommenterare" : "GeKommenterare")" method="post" class="d-inline me-2">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="userId" value="@user.Id" />
+                                <button type="submit" 
+                                        class="btn @(isCommenter ? "btn-outline-danger" : "btn-success") btn-sm"
+                                        onclick='return confirm("@commenterConfirmText")'>
+                                    @(isCommenter ? "Ta bort kommenterarrättighet" : "Ge kommenterarrättighet")
+                                </button>
+                            </form>
+                        }
+
+                        @* Lösenordsåterställning *@
+                        <button type="button" class="btn btn-info btn-sm me-2" data-bs-toggle="modal" data-bs-target="#resetModal-@user.Id">
+                            Återställ lösenord
+                        </button>
+
+                        @* Ta bort användare (aldrig dig själv) *@
+                        @if (!isCurrentUser)
+                        {
+                            <form asp-controller="Home" asp-action="DeleteUser" method="post" class="d-inline"
+                                  onsubmit='return confirm("Är du säker på att du vill ta bort användaren @user.UserName?")'>
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="userId" value="@user.Id" />
+                                <button type="submit" class="btn btn-sm p-0" title="Ta bort användare">
+                                    <img src="~/images/sopptuna.png" alt="Ta bort" width="20" height="20" />
+                                </button>
+                            </form>
+                        }
+                        else
+                        {
+                            <span class="text-muted small">Du kan inte ta bort dig själv</span>
+                        }
+                    </td>
+
+                </tr>
+
+                <!-- Password Reset Modal for this user -->
+                <div class="modal fade" id="resetModal-@user.Id" tabindex="-1" aria-labelledby="resetModalLabel-@user.Id" aria-hidden="true">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header bg-info text-white">
+                                <h5 class="modal-title" id="resetModalLabel-@user.Id">Återställ lösenord för @user.UserName</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <form asp-controller="Home" asp-action="ResetUserPassword" method="post">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="userId" value="@user.Id">
+                                <div class="modal-body">
+                                    <div class="alert alert-warning" role="alert">
+                                        <strong>Viktigt:</strong> Detta kommer att ändra lösenordet för
+                                        @if (isAdmin)
+                                        {
+                                        <text><strong>admin-användaren</strong></text>
+                                        }
+                                        else
+                                        {
+                                        <text><strong>användaren</strong></text>
+                                        }
+                                        <strong>@user.UserName</strong>.
+                                        @if (isCurrentUser)
+                                        {
+                                        <br /><strong>Detta är ditt eget konto - du kommer att behöva logga in igen med det nya lösenordet.</strong>
+                                        }
+                                        else
+                                        {
+                                        <text>Användaren kommer att behöva logga in med det nya lösenordet.</text>
+                                        }
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="newPassword-@user.Id" class="form-label">Nytt lösenord</label>
+                                        <input type="password"
+                                               class="form-control"
+                                               id="newPassword-@user.Id"
+                                               name="newPassword"
+                                               required
+                                               minlength="6"
+                                               placeholder="Minst 6 tecken">
+                                        <div class="form-text">Lösenordet måste uppfylla systemets säkerhetskrav.</div>
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Avbryt</button>
+                                    <button type="submit" class="btn btn-info">Återställ lösenord</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                }
+                </tbody>
+            </table>
+        </div>
+        }
+        else
+        {
+        <div class="text-center py-4">
+            <h5 class="text-muted">Inga användare hittades</h5>
+            <p class="text-muted">Skapa din första användare ovan för att komma igång!</p>
+        </div>
+        }
+    </div>
+</main>
+
+<script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var modals = document.querySelectorAll('.modal');
+        modals.forEach(function(modal) {
+            modal.addEventListener('shown.bs.modal', function() {
+                var passwordInput = modal.querySelector('input[type="password"]');
+                if (passwordInput) {
+                    passwordInput.focus();
+                }
+            });
+        });
+    });
+</script>
+</body>
+</html>

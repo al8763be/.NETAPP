@@ -1,0 +1,163 @@
+@model WebApplication2.Models.UserProfileViewModel
+@{
+    ViewData["Title"] = "Min profil";
+}
+
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>@ViewData["Title"] - STL Forum</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true"/>
+    <style>
+        .body2 {
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 0;
+        }
+
+        .navbar {
+            position: absolute !important;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            padding: 0 20px !important;
+        }
+
+        .hero-image {
+            background-image: url('@Url.Content("~/images/herobild.png")');
+            height: 35vh;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-size: cover;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .hero-text {
+            text-align: center;
+            color: white;
+            padding: 20px;
+        }
+
+        .navbar-brand img {
+            transition: transform 0.3s ease;
+        }
+
+        .navbar-brand:hover img {
+            transform: scale(1.1);
+        }
+    </style>
+</head>
+<body class="body2">
+<header>
+    <nav class="navbar navbar-light justify-content-between">
+        <a href="@Url.Action("Index", "Social")" class="navbar-brand">
+            <img src="~/images/stl-loga.png" width="auto" height="50" alt="STL Logga">
+        </a>
+        <div class="d-flex align-items-center">
+            <a href="@Url.Action("Logout", "Home")" class="navbar-brand">
+                <img src="~/images/loggaut.png" width="auto" height="40" alt="Logga ut">
+            </a>
+        </div>
+    </nav>
+    <div class="hero-image">
+        <div class="hero-text">
+            <h2><b>Min profil</b></h2>
+            <p class="mb-0">@Model.Username</p>
+        </div>
+    </div>
+</header>
+
+<main>
+    <div class="container my-5">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <div class="card shadow-sm">
+                    <div class="card-body p-4">
+                        <h4 class="mb-3">Användarinformation</h4>
+                        <p class="mb-2"><strong>Användarnamn:</strong> @Model.Username</p>
+                        <p class="mb-2"><strong>E-post:</strong> @(string.IsNullOrWhiteSpace(Model.Email) ? "Ej angiven" : Model.Email)</p>
+                        <p class="mb-2"><strong>E-post verifierad:</strong> @(Model.EmailConfirmed ? "Ja" : "Nej")</p>
+                        <p class="mb-2"><strong>Tvåfaktorsautentisering:</strong> @(Model.TwoFactorEnabled ? "Aktiverad" : "Inte aktiverad")</p>
+                        <p class="mb-3"><strong>Roller:</strong> @(Model.Roles.Any() ? string.Join(", ", Model.Roles) : "Inga roller")</p>
+
+                        <hr/>
+                        <h5 class="mb-3">HubSpot-koppling</h5>
+                        @if (Model.HasHubSpotOwnerMapping)
+                        {
+                            <p class="mb-2"><strong>HubSpot owner ID:</strong> @Model.HubSpotOwnerId</p>
+                            <p class="mb-2"><strong>HubSpot e-post:</strong> @(string.IsNullOrWhiteSpace(Model.HubSpotOwnerEmail) ? "Ej tillgänglig" : Model.HubSpotOwnerEmail)</p>
+                            <p class="mb-2"><strong>HubSpot namn:</strong> @(string.IsNullOrWhiteSpace(Model.HubSpotOwnerDisplayName) ? "Ej tillgängligt" : Model.HubSpotOwnerDisplayName)</p>
+                            <p class="mb-3"><strong>HubSpot status:</strong> @(Model.HubSpotOwnerArchived == true ? "Arkiverad" : "Aktiv")</p>
+                        }
+                        else
+                        {
+                            <p class="text-muted mb-3">Ingen HubSpot owner-koppling hittades för ditt konto ännu.</p>
+                        }
+
+                        <hr/>
+                        <h5 class="mb-3">Månadens uppfyllda affärer</h5>
+                        <div class="row g-3 mb-3">
+                            <div class="col-sm-6">
+                                <div class="p-3 border rounded bg-light">
+                                    <div class="text-muted">Antal affärer denna månad</div>
+                                    <div class="fs-4 fw-bold">@Model.CurrentMonthFulfilledDealsCount</div>
+                                </div>
+                            </div>
+                            <div class="col-sm-6">
+                                <div class="p-3 border rounded bg-light">
+                                    <div class="text-muted">Estimerad totalsumma denna månad</div>
+                                    <div class="fs-4 fw-bold">@Model.CurrentMonthFulfilledDealsAmount.ToString("N2")</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        @if (Model.CurrentMonthDeals.Any())
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped">
+                                    <thead>
+                                        <tr>
+                                            <th>Datum</th>
+                                            <th>Affär</th>
+                                            <th>Belopp</th>
+                                            <th>Valuta</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                    @foreach (var deal in Model.CurrentMonthDeals)
+                                    {
+                                        <tr>
+                                            <td>@deal.FulfilledDateUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                                            <td>@(string.IsNullOrWhiteSpace(deal.DealName) ? deal.ExternalDealId : deal.DealName)</td>
+                                            <td>@(deal.Amount?.ToString("N2") ?? "-")</td>
+                                            <td>@(string.IsNullOrWhiteSpace(deal.CurrencyCode) ? "-" : deal.CurrencyCode)</td>
+                                        </tr>
+                                    }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="text-muted">Inga uppfyllda affärer importerade för den här månaden ännu.</p>
+                        }
+
+                        <div class="mt-4">
+                            <a asp-controller="Social" asp-action="Index" class="btn btn-primary">Till startsidan</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

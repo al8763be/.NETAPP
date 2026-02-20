@@ -1,0 +1,401 @@
+@model WebApplication2.Models.Question
+@{
+ViewData["Title"] = @Model.Title;
+}
+
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>@ViewData["Title"] - STL Forum</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true"/>
+    <style>
+        .body2 {
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 0;
+        }
+
+        .navbar {
+            position: absolute !important;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            padding: 0 20px !important;
+        }
+
+        .hero-image {
+            background-image: url('@Url.Content("~/images/herobild.png")');
+            height: 50vh;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-size: cover;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .hero-text {
+            text-align: center;
+            color: white;
+            max-width: 800px;
+            padding: 20px;
+        }
+
+        .hero-text h2 {
+            font-size: 2rem;
+            margin-bottom: 30px;
+        }
+
+        .search-container {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+            display: flex;
+            align-items: stretch;
+            max-width: 600px;
+            margin: 0 auto;
+            overflow: hidden;
+            border: 1px solid #e0e0e0;
+        }
+
+        .search-input {
+            border: none;
+            outline: none;
+            flex: 1;
+            padding: 16px 20px;
+            font-size: 16px;
+            background: white;
+            color: #333;
+        }
+
+        .search-input::placeholder {
+            color: #888;
+            font-weight: 400;
+        }
+
+        .search-btn {
+            background-color: #28a745;
+            border: none;
+            border-radius: 0;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            transition: background-color 0.3s ease;
+            min-width: 60px;
+        }
+
+        .search-btn:hover {
+            background-color: #218838;
+        }
+
+        .navbar-brand img {
+            transition: transform 0.3s ease;
+        }
+
+        .navbar-brand:hover img {
+            transform: scale(1.1);
+        }
+
+        .question-detail-card {
+            border: none;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .question-title {
+            font-weight: bold;
+            color: #333;
+        }
+
+        .question-content {
+            font-size: 1.1rem;
+            line-height: 1.6;
+        }
+
+        .answer-card {
+            border-left: 3px solid #007bff;
+            background-color: #f8f9fa;
+        }
+
+        .answer-form-card {
+            border: 2px dashed #28a745;
+            background-color: #f8fff9;
+        }
+
+        .answer-author {
+            color: #0066cc;
+            font-size: 1rem;
+        }
+
+        .btn_red.tillbaka {
+            background: transparent;
+            border: none;
+            padding: 10px 0;
+            margin-bottom: 30px;
+        }
+
+        .btn_red.tillbaka span.icon {
+            background-image: url('@Url.Content("~/images/tillbaka.png")') no-repeat;
+            float: left;
+            width: 20px;
+            height: 20px;
+            background-size: contain;
+        }
+
+        .tillbaka a {
+            text-decoration: none;
+            color: black;
+            font-size: 1rem;
+            padding-left: 1rem;
+        }
+
+        .tillbaka a:hover {
+            color: #095EA9;
+            text-decoration: underline
+        }
+
+        .alert {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1050;
+            min-width: 300px;
+        }
+    </style>
+</head>
+<body class="body2">
+
+<!-- Success/Error Messages -->
+@if (TempData["SuccessMessage"] != null)
+{
+<div class="alert alert-success alert-dismissible fade show" role="alert">
+    @TempData["SuccessMessage"]
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+}
+
+@if (TempData["ErrorMessage"] != null)
+{
+<div class="alert alert-danger alert-dismissible fade show" role="alert">
+    @TempData["ErrorMessage"]
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+}
+
+<header>
+    <!-- Navbar som ligger ovanpå hero-bilden -->
+    <nav class="navbar navbar-light justify-content-between">
+        <!-- Klickbar logga till vänster -->
+        <a href="@Url.Action("Index", "Social")" class="navbar-brand">
+            <img src="~/images/stl-loga.png" width="auto" height="50" alt="STL Logga">
+        </a>
+
+        <div class="d-flex align-items-center">
+            @if (User.IsInRole("SuperAdmin"))
+            {
+                <a asp-controller="Social" asp-action="HubSpotOwnerMappings" class="btn btn-outline-light btn-sm me-2">
+                    HubSpot Owners
+                </a>
+            }
+            <a asp-controller="Home" asp-action="Profile" class="btn btn-outline-light btn-sm me-2">
+                Min profil
+            </a>
+            <!-- Klickbar logga ut till höger -->
+            <a href="@Url.Action("Logout", "Home")" class="navbar-brand">
+                <img src="~/images/loggaut.png" width="auto" height="40" alt="Logga ut">
+            </a>
+        </div>
+    </nav>
+
+    <!-- Hero sektion med bakgrundsbild -->
+    <div class="hero-image">
+        <div class="hero-text">
+            <h2><b>STL Forum</b> - Kunskapsbank</h2>
+
+            <!-- Förbättrat sökformulär -->
+            <form asp-controller="Social" asp-action="Search" method="get" class="search-container">
+                <input type="search" name="searchTerm" class="search-input" placeholder="Sök med hjälp av nyckelord..." value="">
+                <button type="submit" class="search-btn">
+                    <img src="~/images/sok.png" alt="Sök" width="auto" height="25">
+                </button>
+            </form>
+        </div>
+    </div>
+</header>
+
+<main>
+    <div class="container my-4">
+        <!-- Back Button -->
+        <div class="btn btn_red tillbaka">
+            <span class="icon"></span>
+            <a href="@Url.Action("Index", "Social")">tillbaka</a>
+        </div>
+
+        <!-- Main Question Card -->
+        <div class="card question-detail-card">
+            <div class="card-body">
+                <!-- Question Title -->
+                <h2 class="question-title mb-3">@Html.Raw(Model.Title)</h2>
+
+                <!-- Question Content -->
+                <div class="question-content mb-4">
+                    <p class="lead">@Html.Raw(Model.Content)</p>
+
+                    <!-- Attachment if exists -->
+                    @if (!string.IsNullOrEmpty(Model.AttachmentPath))
+                    {
+                    <div class="attachment-section mt-3 p-3 bg-light rounded">
+                        <small class="text-muted">
+                            Bilaga: <a href="~/@Model.AttachmentPath" target="_blank" class="text-decoration-none text-primary">
+                                <strong>@Model.AttachmentFileName</strong>
+                            </a>
+                            <span class="ms-2 badge bg-secondary">Bilaga</span>
+                        </small>
+                    </div>
+                    }
+                </div>
+
+                <!-- Question Meta -->
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div class="question-meta">
+                        <small class="text-muted">
+                            Av: @(ViewBag.UserNames?.ContainsKey(Model.UserId ?? "") == true ? ViewBag.UserNames[Model.UserId] : "Okänd användare") |
+                            Datum: @Model.CreatedDate.ToString("dd MMMM yyyy, HH:mm", new System.Globalization.CultureInfo("sv-SE")) |
+                            Likes: @Model.Likes
+                            @if (Model.IsFrequentlyAsked)
+                            {
+                            <span class="badge bg-warning text-dark ms-2">Vanlig fråga</span>
+                            }
+                        </small>
+                    </div>
+
+                    <div class="question-actions">
+                        <!-- Like Button -->
+                        <form asp-controller="Social" asp-action="LikeQuestion" method="post" class="d-inline">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="questionId" value="@Model.Id">
+                            <button type="submit" class="btn btn-outline-danger btn-sm">Gilla (@Model.Likes)</button>
+                        </form>
+
+                        <!-- Admin Actions -->
+                        @if (ViewBag.UserRole == "SuperAdmin")
+                        {
+                        <form asp-controller="Social" asp-action="ToggleFAQ" method="post" class="d-inline ms-2">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="questionId" value="@Model.Id">
+                            @if (Model.IsFrequentlyAsked)
+                            {
+                            <button type="submit" class="btn btn-warning btn-sm">Ta bort FAQ</button>
+                            }
+                            else
+                            {
+                            <button type="submit" class="btn btn-outline-warning btn-sm">Markera FAQ</button>
+                            }
+                        </form>
+
+                        <form asp-controller="Social" asp-action="DeleteQuestion" method="post" class="d-inline ms-1">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="questionId" value="@Model.Id">
+                            <button type="submit" class="btn btn-danger btn-sm"
+                                    onclick="return confirm('Är du säker på att du vill ta bort denna fråga?')">
+                                Ta bort
+                            </button>
+                        </form>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Answers Section -->
+        <div class="answers-section mt-4">
+            <h5 class="mb-3">@Model.Answers.Count kommentarer</h5>
+
+            <!-- Existing Answers -->
+            @if (Model.Answers.Any())
+            {
+            @foreach (var answer in Model.Answers)
+            {
+            <div class="answer-card card mb-3">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <strong class="answer-author">@(ViewBag.UserNames?.ContainsKey(answer.UserId ?? "") == true ? ViewBag.UserNames[answer.UserId] : "Okänd användare")</strong>
+                        <small class="text-muted">@answer.CreatedDate.ToString("dd MMMM yyyy, HH:mm", new System.Globalization.CultureInfo("sv-SE"))</small>
+                    </div>
+
+                    <p class="answer-content">@Html.Raw(answer.Content)</p>
+
+                    @if (!string.IsNullOrEmpty(answer.AttachmentPath))
+                    {
+                    <div class="attachment-section mt-2 p-2 bg-light rounded">
+                        <small class="text-muted">
+                            Bilaga: <a href="~/@answer.AttachmentPath" target="_blank" class="text-decoration-none text-primary">
+                                <strong>@answer.AttachmentFileName</strong>
+                            </a>
+                        </small>
+                    </div>
+                    }
+
+                    @if (ViewBag.UserRole == "SuperAdmin")
+                    {
+                    <div class="mt-2">
+                        <form asp-controller="Social" asp-action="DeleteAnswer" method="post" class="d-inline">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="answerId" value="@answer.Id">
+                            <input type="hidden" name="questionId" value="@Model.Id">
+                            <button type="submit" class="btn btn-outline-danger btn-sm"
+                                    onclick="return confirm('Är du säker på att du vill ta bort detta svar?')">
+                                Ta bort svar
+                            </button>
+                        </form>
+                    </div>
+                    }
+                </div>
+            </div>
+            }
+            }
+            else
+            {
+            <p class="text-muted">Inga kommentarer än. Bli den första att svara!</p>
+            }
+
+            <!-- Add Answer Form -->
+            @if (User.IsInRole("Kommenterare") || User.IsInRole("SuperAdmin"))
+            {
+                <div class="answer-form-card card mt-4">
+                    <div class="card-body">
+                        <h6 class="mb-3">Skriv en kommentar...</h6>
+
+                        <form asp-controller="Social" asp-action="CreateAnswer" method="post" enctype="multipart/form-data">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="questionId" value="@Model.Id" />
+
+                            <div class="mb-3">
+                                <textarea name="content" class="form-control" rows="4"
+                              placeholder="Skriv ditt svar här..." required></textarea>
+                            </div>
+
+                            <div class="mb-3">
+                                <input type="file" class="form-control" name="attachment"
+                                       accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" />
+                                <small class="form-text text-muted">📎 Valfri bilaga (Max 5MB)</small>
+                            </div>
+
+                            <button type="submit" class="btn btn-success">➤ Skicka svar</button>
+                        </form>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</main>
+
+<script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

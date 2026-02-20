@@ -1,0 +1,31 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net9.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+      <UserSecretsId>538eda2c-3bcc-4857-998b-edf9a7cbb80f</UserSecretsId>
+  </PropertyGroup>
+
+    <ItemGroup>
+      <PackageReference Include="MailKit" Version="4.14.0" />
+      <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="9.0.6" />
+      <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.6">
+        <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        <PrivateAssets>all</PrivateAssets>
+      </PackageReference>
+      <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.6" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Folder Include="wwwroot\uploads\" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Compile Remove="WebApplication2.Tests/**/*.cs" />
+      <EmbeddedResource Remove="WebApplication2.Tests/**" />
+      <Content Remove="WebApplication2.Tests/**" />
+      <None Remove="WebApplication2.Tests/**" />
+    </ItemGroup>
+
+</Project>

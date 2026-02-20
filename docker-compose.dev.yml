@@ -1,0 +1,55 @@
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: netapp-dev-db
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${SQL_SA_PASSWORD:?Set SQL_SA_PASSWORD in your local .env/.env.dev}"
+      MSSQL_PID: "Developer"
+    ports:
+      - "14333:1433"
+    volumes:
+      - netapp_sql_data:/var/opt/mssql
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: netapp-dev-app
+    depends_on:
+      - db
+    working_dir: /src
+    volumes:
+      - .:/src
+      - netapp_app_bin:/src/bin
+      - netapp_app_obj:/src/obj
+    ports:
+      - "8080:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Development"
+      ASPNETCORE_URLS: "http://0.0.0.0:8080"
+      DOTNET_USE_POLLING_FILE_WATCHER: "1"
+      Database__AutoMigrateOnStartup: "false"
+      Security__DefaultAdminUsername: "devsuperadmin"
+      Security__DefaultAdminPassword: "${DEV_SUPERADMIN_PASSWORD:?Set DEV_SUPERADMIN_PASSWORD in your local .env/.env.dev}"
+      Security__DefaultAdminEmail: "devsuperadmin@localhost"
+
+      # Force local container SQL Server (never production)
+      ConnectionStrings__DefaultConnection: "Server=db,1433;Database=StlForumDev;User Id=sa;Password=${SQL_SA_PASSWORD};Encrypt=False;TrustServerCertificate=True;MultipleActiveResultSets=True"
+
+      # Disable outbound SMTP in dev so tests don't send real emails
+      EmailSettings__SmtpHost: ""
+      EmailSettings__SmtpUsername: ""
+      EmailSettings__SmtpPassword: ""
+      EmailSettings__SmtpPort: "587"
+      EmailSettings__FromEmail: "noreply@localhost"
+      EmailSettings__FromName: "STL Forum Dev"
+      EmailSettings__DriftfragaEmail: ""
+      EmailSettings__SaljfragaEmail: ""
+    restart: unless-stopped
+
+volumes:
+  netapp_sql_data:
+  netapp_app_bin:
+  netapp_app_obj:

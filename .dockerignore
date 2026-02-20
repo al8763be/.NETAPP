@@ -1,0 +1,12 @@
+bin/
+obj/
+node_modules/
+.git/
+.idea/
+publish/
+.env*
+*.user
+*.suo
+*.cache
+*.log
+wwwroot/uploads/

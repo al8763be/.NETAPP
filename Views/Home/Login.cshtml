@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>@ViewData["Title"] - STL Forum</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true"/>
+    <style>
+        .body1 {
+            background-image: url('@Url.Content("~/images/blabakrund.png")');
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            min-height: 100vh;
+        }
+
+        .navbar {
+            padding: 0 20px !important;
+        }
+
+        .adminknapp {
+            width: 70%;
+            color: #095EA9;
+            background-color: white;
+            border: 1px solid #095EA9;
+        }
+
+        .adminknapp:hover {
+            background-color: #095EA9;
+            color: white;
+        }
+
+        .eller {
+            color: #000000;
+            font-size: 1rem;
+        }
+
+        .bild {
+            width: 10rem;
+            height: auto;
+            margin-bottom: 2rem;
+        }
+
+        .loga {
+            margin-top: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .loggain{
+            width: 70%;
+            color: #095EA9;
+            background-color: white;
+            border: 1px solid #095EA9;
+        }
+
+        .loggain:hover {
+            background-color: #095EA9;
+            color: white;
+        }
+
+        .kropp {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .inloggruta {
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body class="body1">
+@{
+    ViewData["Title"] = "Logga in";
+    var rememberedEmployeeNumber = ViewBag.RememberedEmployeeNumber as string ?? string.Empty;
+    var rememberMeChecked = ViewBag.RememberMeChecked as bool? ?? false;
+}
+
+@if (!string.IsNullOrEmpty(ViewBag.ErrorMessage as string))
+{
+    <div class="alert alert-danger text-center mb-4 position-fixed top-0 start-50 translate-middle-x" style="z-index: 1050; margin-top: 20px;">
+        @ViewBag.ErrorMessage
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+
+<div class="container kropp">
+    <div class="text-center loga">
+        <img src="~/images/stl-loga.png" alt="STL Logga" class="bild">
+    </div>
+
+    <form asp-controller="Home" asp-action="ProcessLogin" method="post" class="inloggruta container mt-5 p-4" style="width: 500px; max-width: 90%;">
+        
+        <!-- CSRF Protection (Chapter 6 security requirement) -->
+        @Html.AntiForgeryToken()
+        
+        <div class="mb-3">
+            <label for="employeeNumber" class="form-label">Användarnamn</label>
+            <input type="text" 
+                   class="form-control" 
+                   id="employeeNumber" 
+                   name="employeeNumber" 
+                   value="@rememberedEmployeeNumber"
+                   required
+                   placeholder="Ange ditt anställningsnummer">
+        </div>
+        
+        <div class="mb-3">
+            <label for="password" class="form-label">Lösenord</label>
+            <input type="password" 
+                   class="form-control" 
+                   id="password" 
+                   name="password" 
+                   required
+                   placeholder="Ange ditt lösenord">
+        </div>
+        
+        <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="rememberMe" name="rememberMe" value="true" @(rememberMeChecked ? "checked" : null)>
+            <label class="form-check-label" for="rememberMe">Kom ihåg mig</label>
+        </div>
+
+        <div class="text-center">
+            <button type="submit" class="mb-3 btn loggain">Logga in</button>
+        </div>
+    </form>
+</div>
+
+<script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

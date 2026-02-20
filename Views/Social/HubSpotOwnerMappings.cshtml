@@ -1,0 +1,135 @@
+@model WebApplication2.Models.HubSpotOwnerMappingsAdminViewModel
+@{
+    ViewData["Title"] = "HubSpot Owner-kopplingar";
+}
+
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - STL Forum</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body class="bg-light">
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">HubSpot Owner-kopplingar</h2>
+        <a asp-controller="Social" asp-action="Index" class="btn btn-outline-secondary">Tillbaka</a>
+    </div>
+
+    @if (TempData["SuccessMessage"] != null)
+    {
+        <div class="alert alert-success">@TempData["SuccessMessage"]</div>
+    }
+
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-danger">@TempData["ErrorMessage"]</div>
+    }
+
+    <form method="get" asp-action="HubSpotOwnerMappings" class="card card-body mb-3">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-8">
+                <label for="searchTerm" class="form-label">Sök</label>
+                <input id="searchTerm" name="searchTerm" class="form-control" value="@Model.SearchTerm"
+                       placeholder="Owner-ID, e-post, namn eller användarnamn" />
+            </div>
+            <div class="col-md-2">
+                <div class="form-check mt-4">
+                    <input class="form-check-input" type="checkbox" id="showUnmappedOnly" name="showUnmappedOnly" value="true" @(Model.ShowUnmappedOnly ? "checked" : null) />
+                    <label class="form-check-label" for="showUnmappedOnly">Endast omappade</label>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-primary w-100">Filtrera</button>
+            </div>
+        </div>
+    </form>
+
+    <div class="table-responsive">
+        <table class="table table-striped table-bordered align-middle bg-white">
+            <thead class="table-light">
+                <tr>
+                    <th>HubSpot owner</th>
+                    <th>Namn</th>
+                    <th>Status</th>
+                    <th>Nuvarande koppling</th>
+                    <th>Uppdatera koppling</th>
+                </tr>
+            </thead>
+            <tbody>
+            @if (!Model.OwnerMappings.Any())
+            {
+                <tr>
+                    <td colspan="5" class="text-center text-muted">Inga owner-poster hittades.</td>
+                </tr>
+            }
+            else
+            {
+                @foreach (var row in Model.OwnerMappings)
+                {
+                    <tr>
+                        <td>
+                            <div><strong>@row.HubSpotOwnerId</strong></div>
+                            <div class="small text-muted">@((string.IsNullOrWhiteSpace(row.HubSpotOwnerEmail) ? "Ingen e-post" : row.HubSpotOwnerEmail))</div>
+                            <div class="small text-muted">Senast sedd: @row.LastSeenUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</div>
+                        </td>
+                        <td>@(string.IsNullOrWhiteSpace(row.DisplayName) ? "-" : row.DisplayName)</td>
+                        <td>
+                            @if (row.IsArchived)
+                            {
+                                <span class="badge bg-secondary">Arkiverad</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-success">Aktiv</span>
+                            }
+                        </td>
+                        <td>
+                            @if (row.IsMapped)
+                            {
+                                <span class="badge bg-primary">@row.OwnerUsername</span>
+                            }
+                            else
+                            {
+                                <span class="text-muted">Ingen koppling</span>
+                            }
+                        </td>
+                        <td>
+                            <form asp-action="UpdateHubSpotOwnerMapping" method="post" class="d-flex gap-2">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="hubSpotOwnerId" value="@row.HubSpotOwnerId" />
+                                <input type="hidden" name="searchTerm" value="@Model.SearchTerm" />
+                                <input type="hidden" name="showUnmappedOnly" value="@Model.ShowUnmappedOnly" />
+                                <select name="ownerUserId" class="form-select form-select-sm">
+                                    <option value="">-- Ingen koppling --</option>
+                                    @foreach (var user in Model.UserOptions)
+                                    {
+                                        if (user.Id == row.OwnerUserId)
+                                        {
+                                            <option value="@user.Id" selected>
+                                                @user.Username @(string.IsNullOrWhiteSpace(user.Email) ? string.Empty : $"({user.Email})")
+                                            </option>
+                                        }
+                                        else
+                                        {
+                                            <option value="@user.Id">
+                                                @user.Username @(string.IsNullOrWhiteSpace(user.Email) ? string.Empty : $"({user.Email})")
+                                            </option>
+                                        }
+                                    }
+                                </select>
+                                <button type="submit" class="btn btn-sm btn-primary">Spara</button>
+                            </form>
+                        </td>
+                    </tr>
+                }
+            }
+            </tbody>
+        </table>
+    </div>
+</div>
+</body>
+</html>

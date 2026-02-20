@@ -1,0 +1,523 @@
+@{
+    ViewData["Title"] = "Social Feed";
+}
+
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>@ViewData["Title"] - STL Forum</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true"/>
+    <style>
+        .body2 {
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 0;
+        }
+
+        .navbar {
+            position: absolute !important;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            padding: 0 20px !important;
+        }
+
+        .hero-image {
+            background-image: url('@Url.Content("~/images/herobild.png")');
+            height: 50vh;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-size: cover;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .hero-text {
+            text-align: center;
+            color: white;
+            max-width: 800px;
+            padding: 20px;
+        }
+
+        .hero-text h2 {
+            font-size: 2rem;
+            margin-bottom: 30px;
+        }
+
+        .search-container {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+            display: flex;
+            align-items: stretch;
+            max-width: 600px;
+            margin: 0 auto;
+            overflow: hidden;
+            border: 1px solid #e0e0e0;
+        }
+
+        .search-input {
+            border: none;
+            outline: none;
+            flex: 1;
+            padding: 16px 20px;
+            font-size: 16px;
+            background: white;
+            color: #333;
+        }
+
+        .search-input::placeholder {
+            color: #888;
+            font-weight: 400;
+        }
+
+        .search-btn {
+            background-color: #28a745;
+            border: none;
+            border-radius: 0;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            transition: background-color 0.3s ease;
+            min-width: 60px;
+        }
+
+        .search-btn:hover {
+            background-color: #218838;
+        }
+
+        .navbar-brand img {
+            transition: transform 0.3s ease;
+        }
+
+        .navbar-brand:hover img {
+            transform: scale(1.1);
+        }
+
+        .faq-section {
+            background-color: #f8f9fa;
+            padding: 80px 0;
+        }
+
+        .faq-title {
+            font-size: 2.5rem;
+            font-weight: 300;
+            color: #333;
+            margin-bottom: 50px;
+            text-align: left;
+        }
+
+        .faq-item {
+            background-color: white;
+            padding: 20px 25px;
+            border-bottom: 2px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            text-decoration: none;
+            color: #095EA9;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            margin-bottom: 20px;
+        }
+
+        .faq-item:hover {
+            text-decoration: none;
+            color: #095EA9;
+            border-bottom-color: #007bff;
+            background-color: #f8f9fa;
+        }
+
+        .faq-arrow {
+            color: #666;
+            font-size: 1.2rem;
+            transition: transform 0.3s ease;
+        }
+
+        .faq-item:hover .faq-arrow {
+            transform: translateX(5px);
+            color: #007bff;
+        }
+
+        .skapafraga {
+            padding: 3rem;
+        }
+
+        .skapaknapp {
+            background-color: #095EA9;
+            color: white;
+            border: none;
+            padding: 10px 80px;
+            font-size: 1.2rem;
+            cursor: pointer;
+        }
+
+        .skapaknapp:hover {
+            background-color: #074a87;
+            color: white;
+        }
+
+        .alert {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1050;
+            min-width: 300px;
+        }
+        .card {
+            transition: transform 0.2s;
+            border: 1px solid #dee2e6;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        /* Responsiv design */
+        @@media (max-width: 768px) {
+            .hero-text h2 {
+                font-size: 2rem;
+            }
+            
+            .search-container {
+                max-width: 90%;
+            }
+
+            .faq-title {
+                font-size: 2rem;
+                text-align: center;
+            }
+
+            .faq-section {
+                padding: 60px 20px;
+            }
+        }
+    </style>
+</head>
+<body class="body2">
+
+<!-- Success/Error Messages -->
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        @TempData["SuccessMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        @TempData["ErrorMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+
+<header>
+    <!-- Navbar som ligger ovanpå hero-bilden -->
+    <nav class="navbar navbar-light justify-content-between">
+        <!-- Klickbar logga till vänster -->
+        <a href="@Url.Action("Index", "Social")" class="navbar-brand">
+            <img src="~/images/stl-loga.png" width="auto" height="50" alt="STL Logga">
+        </a>
+        
+        <!-- Admin/Logout controls -->
+        <div class="d-flex align-items-center">
+            @if (ViewBag.UserRole == "SuperAdmin")
+            {
+                <a asp-controller="Home" asp-action="Admin" class="btn btn-warning btn-sm me-2">
+                    👤 User Admin
+                </a>
+                <a asp-controller="Social" asp-action="AdminContests" class="btn btn-success btn-sm me-2">
+                    🏆 Contest Admin
+                </a>
+                <a asp-controller="Social" asp-action="HubSpotOwnerMappings" class="btn btn-info btn-sm me-2">
+                    HubSpot Owners
+                </a>
+            }
+            <a asp-controller="Home" asp-action="Profile" class="btn btn-outline-light btn-sm me-2">
+                Min profil
+            </a>
+            <!-- Klickbar logga ut till höger -->
+            <a href="@Url.Action("Logout", "Home")" class="navbar-brand">
+                <img src="~/images/loggaut.png" width="auto" height="40" alt="Logga ut">
+            </a>
+        </div>
+    </nav>
+
+    <!-- Hero sektion med bakgrundsbild -->
+    <div class="hero-image">
+        <div class="hero-text">
+            <h2><b>Välkommen @ViewBag.CurrentUsername!</b> Vad behöver du hjälp med?</h2>
+            
+            <!-- Förbättrat sökformulär -->
+            <form asp-controller="Social" asp-action="Search" method="get" class="search-container">
+                <input type="search" name="searchTerm" class="search-input" placeholder="Sök med hjälp av nyckelord..." value="@ViewBag.SearchTerm">
+                <button type="submit" class="search-btn">
+                    <img src="~/images/sok.png" alt="Sök" width="auto" height="25">
+                </button>
+            </form>
+        </div>
+    </div>
+</header>
+
+<main>
+    <!-- Pågående tävlingar sektion -->
+    @if (ViewBag.Contests != null && ((List<WebApplication2.Models.Contest>)ViewBag.Contests).Any())
+{
+    <section class="contests-section" style="background-color: #e8f4fd; padding: 60px 0;">
+        <div class="container">
+            <h2 class="faq-title">Pågående tävlingar</h2>
+            
+            <div class="row">
+                @{
+                    var leaderboards = ViewBag.ContestLeaderboards as Dictionary<int, List<WebApplication2.Models.ContestEntry>>;
+                }
+                @foreach (var contest in (List<WebApplication2.Models.Contest>)ViewBag.Contests)
+                {
+                    <div class="col-md-6 mb-4">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="fw-bold mb-1" style="color: #095EA9;">@Html.Raw(contest.Name)</h5>
+                                @if (!string.IsNullOrEmpty(contest.Description))
+                                {
+                                    <p class="mb-2" style="color: #666;">@Html.Raw(contest.Description)</p>
+                                }
+                                <small class="text-muted">
+                                    Slutar: @contest.EndDate.ToString("dd MMMM yyyy", new System.Globalization.CultureInfo("sv-SE"))
+                                    @if (contest.IsActive && contest.EndDate > DateTime.Now)
+                                    {
+                                        <span class="badge bg-success ms-2">Aktiv</span>
+                                    }
+                                </small>
+                                
+                                <!-- Leaderboard Top 3 -->
+                                <div class="mt-3 p-2 bg-light rounded">
+                                    <h6 class="fw-bold mb-2">🏆 Topp 3</h6>
+                                    @if (leaderboards != null && leaderboards.ContainsKey(contest.Id) && leaderboards[contest.Id].Any())
+                                    {
+                                        <ol class="list-unstyled mb-0">
+                                            @{
+                                                var entries = leaderboards[contest.Id];
+                                                for (int i = 0; i < entries.Count; i++)
+                                                {
+                                                    var entry = entries[i];
+                                                    var medal = i == 0 ? "🥇" : i == 1 ? "🥈" : "🥉";
+                                                    var compactLabel = entry.EmployeeNumber ?? string.Empty;
+                                                    var departmentStartIndex = compactLabel.IndexOf(" (", StringComparison.Ordinal);
+                                                    if (departmentStartIndex > 0)
+                                                    {
+                                                        compactLabel = compactLabel.Substring(0, departmentStartIndex);
+                                                    }
+                                                    <li class="d-flex justify-content-between align-items-center mb-1">
+                                                        <span>
+                                                            <strong>@medal @compactLabel</strong>
+                                                        </span>
+                                                        <span class="badge bg-primary">@entry.DealsCount affärer</span>
+                                                    </li>
+                                                }
+                                            }
+                                        </ol>
+                                    }
+                                    else
+                                    {
+                                        <p class="text-muted small mb-0">Inga affärer registrerade än</p>
+                                    }
+                                </div>
+                                <div class="mt-3">
+                                    <a asp-controller="Social" asp-action="ContestLeaderboard" asp-route-id="@contest.Id" class="btn btn-outline-primary btn-sm">
+                                        Visa full leaderboard
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </section>
+}
+
+    <!-- Vanliga frågor sektion -->
+    <section class="faq-section">
+        <div class="container fragoruta">
+            <!-- Category Filter Buttons -->
+            <div class="mb-4">
+                <button class="btn btn-outline-primary active" onclick="filterQuestions('all')">Alla frågor</button>
+                <button class="btn btn-outline-primary" onclick="filterQuestions('säljfråga')">Säljfrågor</button>
+                <button class="btn btn-outline-primary" onclick="filterQuestions('driftfråga')">Driftfrågor</button>
+            </div>
+            <h2 class="faq-title">Vanliga frågor</h2>
+
+            @if (ViewBag.FrequentlyAsked != null && ((List<WebApplication2.Models.Question>)ViewBag.FrequentlyAsked).Any())
+            {
+                <div class="row">
+                    @{
+                        var faqs = (List<WebApplication2.Models.Question>)ViewBag.FrequentlyAsked;
+                        var halfCount = (int)Math.Ceiling(faqs.Count / 2.0);
+                    }
+
+                    <div class="col-md-6">
+                        @for (int i = 0; i < halfCount && i < faqs.Count; i++)
+                        {
+                            var faq = faqs[i];
+                            <a href="@Url.Action("QuestionDetail", "Social", new { id = faq.Id })" class="faq-item">
+                                <span>@Html.Raw(faq.Title)</span>
+                                <span class="faq-arrow">›</span>
+                            </a>
+                        }
+                    </div>
+
+                    <div class="col-md-6">
+                        @for (int i = halfCount; i < faqs.Count; i++)
+                        {
+                            var faq = faqs[i];
+                            <a href="@Url.Action("QuestionDetail", "Social", new { id = faq.Id })" class="faq-item">
+                                <span>@Html.Raw(faq.Title)</span>
+                                <span class="faq-arrow">›</span>
+                            </a>
+                        }
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="faq-item" style="opacity: 0.5; cursor: default;">
+                            <span>Inga vanliga frågor än...</span>
+                            <span class="faq-arrow">›</span>
+                        </div>
+                    </div>
+                </div>
+                @if (ViewBag.UserRole == "SuperAdmin")
+                {
+                    <small class="text-muted">Som admin kan du markera frågor som "Vanliga frågor" genom att klicka "Markera FAQ" på frågor nedan.</small>
+                }
+            }
+
+            <!-- Recent Questions Section -->
+            @if (ViewBag.RecentQuestions != null && ((List<WebApplication2.Models.Question>)ViewBag.RecentQuestions).Any())
+            {
+                <div class="mt-5">
+                    <h3 class="mb-4">🔥 Senaste frågorna</h3>
+                    @foreach (var question in (List<WebApplication2.Models.Question>)ViewBag.RecentQuestions)
+                    {
+                        <div class="card mb-3" data-category="@question.Category">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                    <h6 class="fw-bold mb-0">
+                                        <a asp-controller="Social" asp-action="QuestionDetail" asp-route-id="@question.Id"
+                                           class="text-decoration-none text-dark">
+                                            @Html.Raw(question.Title)
+                                        </a>
+                                    </h6>
+                                    <small class="text-muted">Datum: @question.CreatedDate.ToString("dd MMMM yyyy, HH:mm", new System.Globalization.CultureInfo("sv-SE"))</small>
+                                </div>
+
+                                <p class="mb-2">@Html.Raw(question.Content.Substring(0, Math.Min(150, question.Content.Length)))@(question.Content.Length > 150 ? "..." : "")</p>
+
+                                @if (!string.IsNullOrEmpty(question.AttachmentPath))
+                                {
+                                    <div class="attachment-section mb-2 p-2 bg-light rounded">
+                                        <small class="text-muted">
+                                            Bilaga:
+                                            <a href="~/@question.AttachmentPath" target="_blank" class="text-decoration-none text-primary">
+                                                <strong>@question.AttachmentFileName</strong>
+                                            </a>
+                                            <span class="ms-2 badge bg-secondary">Bilaga</span>
+                                        </small>
+                                    </div>
+                                }
+
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <small class="text-muted">
+                                        Kategori: <span class="badge bg-info">@question.Category</span> |
+                                        Användare: @(ViewBag.UserNames?.ContainsKey(question.UserId ?? "") == true ? ViewBag.UserNames[question.UserId] : "Okänd användare") |
+                                        Likes: @question.Likes |
+                                        Svar: @question.Answers.Count
+                                        @if (question.IsFrequentlyAsked)
+                                        {
+                                            <span class="badge bg-warning text-dark ms-2">Vanlig fråga</span>
+                                        }
+                                    </small>
+
+                                    <div>
+                                        <!-- Like Button -->
+                                        <form asp-controller="Social" asp-action="LikeQuestion" method="post" class="d-inline">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="questionId" value="@question.Id">
+                                            <button type="submit" class="btn btn-outline-danger btn-sm">Gilla</button>
+                                        </form>
+
+                                        <!-- Admin FAQ Toggle -->
+                                        @if (ViewBag.UserRole == "SuperAdmin")
+                                        {
+                                            <form asp-controller="Social" asp-action="ToggleFAQ" method="post" class="d-inline ms-1">
+                                                <input type="hidden" name="questionId" value="@question.Id">
+                                                @if (question.IsFrequentlyAsked)
+                                                {
+                                                    <button type="submit" class="btn btn-warning btn-sm" title="Ta bort från vanliga frågor">
+                                                        Ta bort FAQ
+                                                    </button>
+                                                }
+                                                else
+                                                {
+                                                    <button type="submit" class="btn btn-outline-warning btn-sm" title="Lägg till som vanlig fråga">
+                                                        Markera FAQ
+                                                    </button>
+                                                }
+                                            </form>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </section>
+</main>
+
+<footer>
+    <div class="skapafraga text-center">
+        <h2>Hittar du inte vad du behöver?</h2>
+        <p>Hjälp dig själv och andra skapa en fråga så du underlättar för andra som stöter på samma problem</p>
+        <a href="@Url.Action("CreateQuestion", "Social")">
+            <button type="button" class="mb-3 text-center btn btn-primary skapaknapp">Skapa ny fråga</button>
+        </a>
+    </div>
+</footer>
+<script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+function filterQuestions(category) {
+    // Update button states
+    document.querySelectorAll('.btn-outline-primary').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    event.target.classList.add('active');
+    
+    // Filter questions
+    const questions = document.querySelectorAll('[data-category]');
+    questions.forEach(question => {
+        if (category === 'all' || question.dataset.category === category) {
+            question.style.display = 'block';
+        } else {
+            question.style.display = 'none';
+        }
+    });
+}
+</script>
+</body>
+</html>

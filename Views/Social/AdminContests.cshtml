@@ -1,0 +1,348 @@
+@model List<WebApplication2.Models.Contest>
+@{
+ViewData["Title"] = "Contest Administration";
+}
+
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>@ViewData["Title"] - STL Forum</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true"/>
+    <style>
+        .body2 {
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 0;
+        }
+
+        .navbar {
+            position: absolute !important;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            padding: 0 20px;
+        }
+
+        .hero-image {
+            background-image: url('@Url.Content("~/images/herobild.png")');
+            height: 50vh;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-size: cover;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .hero-text {
+            text-align: center;
+            color: white;
+            max-width: 800px;
+            padding: 20px;
+        }
+
+        .hero-text h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .hero-text h3 {
+            font-size: 1.2rem;
+            font-weight: 300;
+        }
+
+        .navbar-brand img {
+            transition: transform 0.3s ease;
+        }
+
+        .navbar-brand:hover img {
+            transform: scale(1.1);
+        }
+
+        .alert {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1050;
+            min-width: 300px;
+        }
+
+        .skapaanvandare {
+            max-width: 700px;
+        }
+
+        .contest-section {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+        }
+
+        .contest-section:hover {
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body class="body2">
+
+<!-- Success/Error Messages -->
+@if (TempData["SuccessMessage"] != null)
+{
+<div class="alert alert-success alert-dismissible fade show" role="alert">
+    @TempData["SuccessMessage"]
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+}
+
+@if (TempData["ErrorMessage"] != null)
+{
+<div class="alert alert-danger alert-dismissible fade show" role="alert">
+    @TempData["ErrorMessage"]
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+}
+
+<header>
+    <!-- Navbar som ligger ovanpå hero-bilden -->
+    <nav class="navbar navbar-light justify-content-between">
+        <!-- Klickbar logga till vänster -->
+        <a href="@Url.Action("Index", "Social")" class="navbar-brand">
+            <img src="~/images/stl-loga.png" width="auto" height="50" alt="STL Logga">
+        </a>
+
+        <div class="d-flex align-items-center">
+            @if (User.IsInRole("SuperAdmin"))
+            {
+                <a asp-controller="Social" asp-action="HubSpotOwnerMappings" class="btn btn-outline-light btn-sm me-2">
+                    HubSpot Owners
+                </a>
+            }
+            <a asp-controller="Home" asp-action="Profile" class="btn btn-outline-light btn-sm me-2">
+                Min profil
+            </a>
+            <!-- Klickbar logga ut till höger -->
+            <a href="@Url.Action("Logout", "Home")" class="navbar-brand">
+                <img src="~/images/loggaut.png" width="auto" height="40" alt="Logga ut">
+            </a>
+        </div>
+    </nav>
+
+    <!-- Hero sektion med bakgrundsbild -->
+    <div class="hero-image">
+        <div class="hero-text">
+            <h1>Välkommen Admin!</h1>
+            <h3>Här kan du skapa, hantera och ta bort tävlingar.</h3>
+        </div>
+    </div>
+</header>
+
+<main>
+    <!-- Create New Contest -->
+    <div class="d-flex flex-column align-items-center" style="min-height: 30vh; width: 100%;">
+        <h3 class="text-center p-3 w-100">Skapa tävling</h3>
+        <div class="mb-3">
+            <form asp-controller="Social" asp-action="SyncHubSpotDeals" method="post" class="d-inline">
+                @Html.AntiForgeryToken()
+                <button type="submit" class="btn btn-primary">Synca HubSpot-affärer</button>
+            </form>
+        </div>
+        <form asp-controller="Social" asp-action="CreateContest" method="post" class="skapaanvandare w-100">
+            @Html.AntiForgeryToken()
+            <div class="row align-items-end">
+                <div class="col-md-6 mb-3">
+                    <label for="name" class="form-label">Tävlingsnamn</label>
+                    <input type="text" class="form-control" id="name" name="name" required placeholder="T.ex. Q1 Försäljningstävling 2025">
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label for="description" class="form-label">Beskrivning (valfritt)</label>
+                    <input type="text" class="form-control" id="description" name="description" placeholder="Kort beskrivning av tävlingen">
+                </div>
+            </div>
+            <div class="row align-items-end">
+                <div class="col-md-3 mb-3">
+                    <label for="startDate" class="form-label">Startdatum</label>
+                    <input type="date" class="form-control" id="startDate" name="startDate" required>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label for="endDate" class="form-label">Slutdatum</label>
+                    <input type="date" class="form-control" id="endDate" name="endDate" required>
+                </div>
+                <div class="col-md-6 mb-3 d-flex align-items-end">
+                    <button type="submit" class="btn btn-success" style="height: 38px; width: auto; min-width: 120px;">Skapa tävling</button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- Existing Contests -->
+    <div class="container mt-4">
+        <h3 class="text-center mb-4">Alla tävlingar</h3>
+
+        @if (Model.Any())
+        {
+        @foreach (var contest in Model)
+        {
+        <div class="contest-section border rounded p-3 mb-4">
+            <!-- Contest Header -->
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div>
+                    <h6 class="fw-bold mb-1">@Html.Raw(contest.Name)</h6>
+                    @if (!string.IsNullOrEmpty(contest.Description))
+                    {
+                    <small class="text-muted">@Html.Raw(contest.Description)</small><br>
+                    }
+                    <small class="text-muted">
+                        @contest.StartDate.ToString("dd MMMM yyyy", new System.Globalization.CultureInfo("sv-SE")) till @contest.EndDate.ToString("dd MMMM yyyy", new System.Globalization.CultureInfo("sv-SE"))
+                    </small>
+
+                    @if (contest.IsActive && contest.EndDate > DateTime.Now)
+                    {
+                    <span class="badge bg-success ms-2">Aktiv</span>
+                    }
+                    else if (contest.EndDate <= DateTime.Now)
+                    {
+                    <span class="badge bg-secondary ms-2">Avslutad</span>
+                    }
+                    else
+                    {
+                    <span class="badge bg-warning ms-2">Kommande</span>
+                    }
+                </div>
+
+                <div>
+                    <button class="btn btn-info btn-sm me-2" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#contest-@contest.Id">
+                        Hantera affärer
+                    </button>
+
+                    <!-- Delete Contest Button -->
+                    <form asp-controller="Social" asp-action="DeleteContest" method="post" class="d-inline">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="contestId" value="@contest.Id">
+                        <button type="submit" class="btn btn-sm p-0"
+                                onclick="return confirm('Är du säker på att du vill ta bort tävlingen @Html.Raw(contest.Name.Replace("'", "\\'"))?')">
+                            <img src="~/images/sopptuna.png" alt="Ta bort" width="20" height="20">
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Contest Management (Collapsible) -->
+            <div class="collapse" id="contest-@contest.Id">
+                <!-- Add/Update Deals Form -->
+                <div class="bg-light rounded p-3 mb-3">
+                    <h6 class="fw-bold mb-3">Registrera affärer</h6>
+                    <form asp-controller="Social" asp-action="UpdateDeals" method="post">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="contestId" value="@contest.Id">
+                        <div class="row g-3 align-items-end">
+                            <div class="col-md-4">
+                                <label class="form-label">Välj användare</label>
+                                <select name="userId" class="form-select" required>
+                                    <option value="">-- Välj användare --</option>
+                                    @foreach (var user in (List<Microsoft.AspNetCore.Identity.IdentityUser>)ViewBag.AllUsers)
+                                    {
+                                    <option value="@user.Id">@user.UserName</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Antal affärer</label>
+                                <input type="number" name="dealsCount" class="form-control" min="0" required placeholder="0">
+                            </div>
+                            <div class="col-md-5">
+                                <button type="submit" class="btn btn-success">Uppdatera affärer</button>
+                                <button type="button" class="btn btn-info ms-2" onclick="loadContestEntries(@contest.Id)">
+                                    Ladda om leaderboard
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Contest Leaderboard -->
+                <div class="leaderboard" id="leaderboard-@contest.Id">
+                    <h6 class="fw-bold mb-2">Leaderboard</h6>
+                    <div class="text-muted">Klicka "Ladda om leaderboard" för att se aktuella resultat</div>
+                </div>
+            </div>
+        </div>
+        }
+        }
+        else
+        {
+        <div class="text-center py-4">
+            <h5 class="text-muted">Inga tävlingar skapade än</h5>
+            <p class="text-muted">Skapa din första tävling ovan för att komma igång!</p>
+        </div>
+        }
+    </div>
+</main>
+
+<script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    // Load contest entries and display leaderboard
+    function loadContestEntries(contestId) {
+        fetch(`/Social/GetContestEntries?contestId=${contestId}`)
+            .then(response => response.json())
+            .then(data => {
+                const leaderboard = document.getElementById(`leaderboard-${contestId}`);
+
+                if (data.error) {
+                    leaderboard.innerHTML = '<div class="alert alert-danger">Fel vid laddning av data</div>';
+                    return;
+                }
+
+                if (data.length === 0) {
+                    leaderboard.innerHTML = `
+                    <h6 class="fw-bold mb-2">Leaderboard</h6>
+                    <div class="text-muted">Inga affärer registrerade än för denna tävling</div>
+                `;
+                    return;
+                }
+
+                let html = '<h6 class="fw-bold mb-2">Leaderboard</h6>';
+                html += '<div class="table-responsive">';
+                html += '<table class="table table-sm">';
+                html += '<thead><tr><th>Placering</th><th>Användare</th><th>Affärer</th><th>Senast uppdaterad</th></tr></thead>';
+                html += '<tbody>';
+
+                data.forEach((entry, index) => {
+                    const position = index + 1;
+                    const badge = position === 1 ? '🥇' : position === 2 ? '🥈' : position === 3 ? '🥉' : position;
+                    html += `
+                    <tr class="${position <= 3 ? 'table-warning' : ''}">
+                        <td>${badge}</td>
+                        <td>${entry.employeeNumber}</td>
+                        <td><strong>${entry.dealsCount}</strong></td>
+                        <td><small>${entry.updatedDate}</small></td>
+                    </tr>
+                `;
+                });
+
+                html += '</tbody></table></div>';
+                leaderboard.innerHTML = html;
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                const leaderboard = document.getElementById(`leaderboard-${contestId}`);
+                leaderboard.innerHTML = '<div class="alert alert-danger">Fel vid laddning av leaderboard</div>';
+            });
+    }
+
+    // Set default dates
+    document.addEventListener('DOMContentLoaded', function() {
+        const today = new Date().toISOString().split('T')[0];
+        const nextMonth = new Date();
+        nextMonth.setMonth(nextMonth.getMonth() + 1);
+        const nextMonthStr = nextMonth.toISOString().split('T')[0];
+
+        document.getElementById('startDate').value = today;
+        document.getElementById('endDate').value = nextMonthStr;
+    });
+</script>
+</body>
+</html>

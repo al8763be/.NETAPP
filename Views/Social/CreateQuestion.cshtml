@@ -1,0 +1,217 @@
+@{
+ViewData["Title"] = "Skapa ny fråga";
+}
+
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>@ViewData["Title"] - STL Forum</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true"/>
+    <style>
+        .body2 {
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 0;
+        }
+
+        .navbar {
+            position: absolute !important;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            padding: 0 20px !important;
+        }
+
+        .hero-image {
+            background-image: url('@Url.Content("~/images/herobild.png")');            height: 50vh;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-size: cover;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .hero-text {
+            text-align: center;
+            color: white;
+            max-width: 800px;
+            padding: 20px;
+        }
+
+        .hero-text h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .hero-text h3 {
+            font-size: 1.2rem;
+            font-weight: 300;
+        }
+
+        .navbar-brand img {
+            transition: transform 0.3s ease;
+        }
+
+        .navbar-brand:hover img {
+            transform: scale(1.1);
+        }
+
+        .btn_red.tillbaka {
+            background: transparent;
+            border: none;
+            padding: 10px 0;
+            margin-bottom: 30px;
+        }
+
+        .btn_red.tillbaka span.icon {
+            background: url('@Url.Content("~/images/tillbaka.png")') no-repeat;
+            float: left;
+            width: 20px;
+            height: 20px;
+            background-size: contain;
+        }
+
+        .tillbaka a {
+            text-decoration: none;
+            color: black;
+            font-size: 1rem;
+            padding-left: 1rem;
+        }
+
+        .tillbaka a:hover {
+            color: #095EA9;
+            text-decoration: underline;
+        }
+
+        .alert {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1050;
+            min-width: 300px;
+        }
+    </style>
+</head>
+<body class="body2">
+
+<!-- Success/Error Messages -->
+@if (TempData["SuccessMessage"] != null)
+{
+<div class="alert alert-success alert-dismissible fade show" role="alert">
+    @TempData["SuccessMessage"]
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+}
+
+@if (TempData["ErrorMessage"] != null)
+{
+<div class="alert alert-danger alert-dismissible fade show" role="alert">
+    @TempData["ErrorMessage"]
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+}
+
+<header>
+    <!-- Navbar som ligger ovanpå hero-bilden -->
+    <nav class="navbar navbar-light justify-content-between">
+        <!-- Klickbar logga till vänster -->
+        <a href="@Url.Action("Index", "Social")" class="navbar-brand">
+            <img src="~/images/stl-loga.png" width="auto" height="50" alt="STL Logga">
+        </a>
+
+        <div class="d-flex align-items-center">
+            @if (User.IsInRole("SuperAdmin"))
+            {
+                <a asp-controller="Social" asp-action="HubSpotOwnerMappings" class="btn btn-outline-light btn-sm me-2">
+                    HubSpot Owners
+                </a>
+            }
+            <a asp-controller="Home" asp-action="Profile" class="btn btn-outline-light btn-sm me-2">
+                Min profil
+            </a>
+            <!-- Klickbar logga ut till höger -->
+            <a href="@Url.Action("Logout", "Home")" class="navbar-brand">
+                <img src="~/images/loggaut.png" width="auto" height="40" alt="Logga ut">
+            </a>
+        </div>
+    </nav>
+
+    <!-- Hero sektion med bakgrundsbild -->
+    <div class="hero-image">
+        <div class="hero-text">
+            <h1>Skapa ny fråga</h1>
+            <h3>Utöka kunskapsbasen - din digitala vägvisare</h3>
+        </div>
+    </div>
+</header>
+
+<main>
+    <div class="container mt-5">
+        <!-- Tillbaka knapp -->
+        <div class="btn btn_red tillbaka">
+            <span class="icon"></span>
+            <a href="@Url.Action("Index", "Social")">tillbaka</a>
+        </div>
+
+        <!-- Create Question Form -->
+        <form asp-controller="Social" asp-action="CreateQuestion" method="post" enctype="multipart/form-data">
+            @Html.AntiForgeryToken()
+
+            <div class="mb-4">
+                <h4>Hjälp dig själv och andra!</h4>
+                <p>Skapa en fråga så du underlättar för andra som stöter på samma problem.</p>
+            </div>
+            
+            <div class="form-group mb-3">
+                <label for="category" class="form-label">Kategori</label>
+                <select class="form-control" id="category" name="category" required>
+                    <option value="säljfråga">Säljfråga</option>
+                    <option value="driftfråga">Driftfråga</option>
+                </select>
+            </div>
+
+            <div class="form-group mb-3">
+                <label for="title" class="form-label">Frågetitel</label>
+                <input type="text"
+                       class="form-control"
+                       id="title"
+                       name="title"
+                       required
+                       maxlength="200"
+                       placeholder="Ange frågetitel">
+            </div>
+
+            <div class="form-group mb-3">
+                <label for="content" class="form-label">Frågedetaljer</label>
+                <textarea class="form-control"
+                          id="content"
+                          name="content"
+                          rows="5"
+                          required
+                          placeholder="Beskriv din fråga här..."></textarea>
+            </div>
+
+            <div class="form-group mb-3">
+                <label for="attachment" class="form-label">📎 Bilaga (valfritt)</label>
+                <input type="file"
+                       class="form-control"
+                       id="attachment"
+                       name="attachment"
+                       accept=".pdf,.doc,.docx,.png,.jpg,.jpeg">
+                <small class="form-text text-muted">Max 5MB. PDF, Word-dokument eller bilder tillåts.</small>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Skapa fråga</button>
+        </form>
+    </div>
+</main>
+
+<script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
