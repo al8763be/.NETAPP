@@ -304,10 +304,14 @@ ViewData["Title"] = "Contest Administration";
                     return;
                 }
 
-                let html = '<h6 class="fw-bold mb-2">Leaderboard</h6>';
+                const latestUpdated = data[0]?.updatedDate ?? '';
+                let html = `<h6 class="fw-bold mb-2 d-flex justify-content-between align-items-center">
+                    <span>Leaderboard</span>
+                    ${latestUpdated ? `<small class="text-muted">Uppdaterad: ${latestUpdated}</small>` : ''}
+                </h6>`;
                 html += '<div class="table-responsive">';
                 html += '<table class="table table-sm">';
-                html += '<thead><tr><th>Placering</th><th>Användare</th><th>Affärer</th><th>Senast uppdaterad</th></tr></thead>';
+                html += '<thead><tr><th>Placering</th><th>Användare</th><th>Affärer</th></tr></thead>';
                 html += '<tbody>';
 
                 data.forEach((entry, index) => {
@@ -318,7 +322,6 @@ ViewData["Title"] = "Contest Administration";
                         <td>${badge}</td>
                         <td>${entry.employeeNumber}</td>
                         <td><strong>${entry.dealsCount}</strong></td>
-                        <td><small>${entry.updatedDate}</small></td>
                     </tr>
                 `;
                 });

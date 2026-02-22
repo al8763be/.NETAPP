@@ -102,6 +102,7 @@ namespace WebApplication2.Data
                 entity.Property(d => d.OwnerUserId).HasMaxLength(450);
                 entity.Property(d => d.DealName).HasMaxLength(512);
                 entity.Property(d => d.Amount).HasPrecision(18, 2);
+                entity.Property(d => d.SellerProvision).HasPrecision(18, 2);
                 entity.Property(d => d.CurrencyCode).HasMaxLength(16);
                 entity.Property(d => d.DealStage).HasMaxLength(128);
                 entity.Property(d => d.PayloadHash).HasMaxLength(128);

@@ -14,6 +14,7 @@ namespace WebApplication2.Models
         public IdentityUser? OwnerUser { get; set; }
         public DateTime FulfilledDateUtc { get; set; }
         public decimal? Amount { get; set; }
+        public decimal? SellerProvision { get; set; }
         public string? CurrencyCode { get; set; }
         public string? DealStage { get; set; }
         public DateTime? HubSpotLastModifiedUtc { get; set; }

@@ -48,6 +48,9 @@ namespace WebApplication2.Services.HubSpot
         [Required]
         public string CurrencyCodeProperty { get; set; } = "deal_currency_code";
 
+        [Required]
+        public string ProvisionProperty { get; set; } = "saljarprovision";
+
         [Range(1, 100)]
         public int PageSize { get; set; } = 100;
 

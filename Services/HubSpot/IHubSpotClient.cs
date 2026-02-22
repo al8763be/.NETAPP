@@ -30,6 +30,7 @@ namespace WebApplication2.Services.HubSpot
         public DateTime? FulfilledDateUtc { get; set; }
         public DateTime? LastModifiedUtc { get; set; }
         public decimal? Amount { get; set; }
+        public decimal? SellerProvision { get; set; }
         public string? CurrencyCode { get; set; }
         public string? DealStage { get; set; }
         public string? PayloadHash { get; set; }

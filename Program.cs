@@ -64,6 +64,7 @@ builder.Services.AddOptions<HubSpotOptions>()
             !string.IsNullOrWhiteSpace(options.LastModifiedProperty) &&
             !string.IsNullOrWhiteSpace(options.AmountProperty) &&
             !string.IsNullOrWhiteSpace(options.CurrencyCodeProperty) &&
+            !string.IsNullOrWhiteSpace(options.ProvisionProperty) &&
             !string.IsNullOrWhiteSpace(options.UsernameEmailDomain),
         "HubSpot schema mapping is incomplete. Configure mapping keys under HubSpot in appsettings.json.")
     .Validate(
@@ -83,6 +84,7 @@ builder.Services.AddHttpClient<IHubSpotClient, HubSpotClient>((serviceProvider, 
 
 builder.Services.AddScoped<IHubSpotMappingService, HubSpotMappingService>();
 builder.Services.AddScoped<IHubSpotSyncService, HubSpotSyncService>();
+builder.Services.AddHostedService<HubSpotSyncBackgroundService>();
 
 // Configure cookie authentication (Chapter 6 best practices)
 builder.Services.ConfigureApplicationCookie(options =>

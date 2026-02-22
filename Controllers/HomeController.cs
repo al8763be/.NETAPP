@@ -446,6 +446,7 @@ namespace WebApplication2.Controllers
                     DealName = d.DealName ?? string.Empty,
                     FulfilledDateUtc = d.FulfilledDateUtc,
                     Amount = d.Amount,
+                    SellerProvision = d.SellerProvision,
                     CurrencyCode = d.CurrencyCode ?? string.Empty
                 })
                 .ToListAsync();
@@ -468,7 +469,8 @@ namespace WebApplication2.Controllers
                 HubSpotOwnerArchived = ownerMapping?.IsArchived,
                 CurrentMonthDeals = currentMonthDeals,
                 CurrentMonthFulfilledDealsCount = currentMonthDeals.Count,
-                CurrentMonthFulfilledDealsAmount = currentMonthDeals.Sum(d => d.Amount ?? 0m)
+                CurrentMonthFulfilledDealsAmount = currentMonthDeals.Sum(d => d.Amount ?? 0m),
+                CurrentMonthFulfilledDealsProvision = currentMonthDeals.Sum(d => d.SellerProvision ?? 0m)
             };
 
             return View(model);

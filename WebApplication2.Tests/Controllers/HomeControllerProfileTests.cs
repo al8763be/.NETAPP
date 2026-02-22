@@ -41,6 +41,7 @@ public class HomeControllerProfileTests
                 OwnerUserId = user.Id,
                 FulfilledDateUtc = monthStartUtc.AddDays(3),
                 Amount = 125m,
+                SellerProvision = 12.5m,
                 CurrencyCode = "SEK",
                 FirstSeenUtc = DateTime.UtcNow,
                 LastSeenUtc = DateTime.UtcNow
@@ -53,6 +54,7 @@ public class HomeControllerProfileTests
                 OwnerUserId = user.Id,
                 FulfilledDateUtc = monthStartUtc.AddDays(5),
                 Amount = null,
+                SellerProvision = 7.25m,
                 CurrencyCode = "SEK",
                 FirstSeenUtc = DateTime.UtcNow,
                 LastSeenUtc = DateTime.UtcNow
@@ -65,6 +67,7 @@ public class HomeControllerProfileTests
                 OwnerUserId = user.Id,
                 FulfilledDateUtc = monthStartUtc.AddSeconds(-1),
                 Amount = 999m,
+                SellerProvision = 99m,
                 CurrencyCode = "SEK",
                 FirstSeenUtc = DateTime.UtcNow,
                 LastSeenUtc = DateTime.UtcNow
@@ -77,6 +80,7 @@ public class HomeControllerProfileTests
                 OwnerUserId = otherUser.Id,
                 FulfilledDateUtc = monthStartUtc.AddDays(4),
                 Amount = 500m,
+                SellerProvision = 50m,
                 CurrencyCode = "SEK",
                 FirstSeenUtc = DateTime.UtcNow,
                 LastSeenUtc = DateTime.UtcNow
@@ -113,8 +117,10 @@ public class HomeControllerProfileTests
 
         Assert.Equal(2, model.CurrentMonthFulfilledDealsCount);
         Assert.Equal(125m, model.CurrentMonthFulfilledDealsAmount);
+        Assert.Equal(19.75m, model.CurrentMonthFulfilledDealsProvision);
         Assert.Equal(2, model.CurrentMonthDeals.Count);
         Assert.Equal(new[] { "m2", "m1" }, model.CurrentMonthDeals.Select(d => d.ExternalDealId).ToArray());
+        Assert.Equal(new decimal?[] { 7.25m, 12.5m }, model.CurrentMonthDeals.Select(d => d.SellerProvision).ToArray());
     }
 
     private static ClaimsPrincipal BuildPrincipal(string userId, string userName)

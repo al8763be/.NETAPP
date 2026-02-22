@@ -1,6 +1,6 @@
 # HubSpot Integration Status (Point of Truth)
 
-Last updated: 2026-02-19
+Last updated: 2026-02-22
 
 ## Scope and Priority
 
@@ -54,7 +54,7 @@ Status: Implemented
   - `Data/STLForumContext.cs`
 
 ## Part 2: Tests
-Status: Implemented (code), execution pending in restricted environment
+Status: Implemented and validated
 
 Delivered:
 - New test project:
@@ -77,9 +77,8 @@ Delivered:
   - owner mapping data exposure in profile model
 
 Validation note:
-- Test execution (`dotnet test`) requires NuGet restore access.
-- In this sandbox, restore to `https://api.nuget.org/v3/index.json` is blocked, so tests could not be executed here.
-- Run locally in a network-enabled environment:
+- Test suite was executed successfully in a network-enabled environment.
+- Example command:
   - `dotnet test WebApplication2.Tests/WebApplication2.Tests.csproj`
 
 ## Part 3: Profile expansion
@@ -89,12 +88,38 @@ Delivered in `Min profil`:
 - HubSpot owner section (id, email, display name, status if mapped).
 - Current month fulfilled deals count.
 - Estimated total monthly amount (sum of imported amounts).
+- Total monthly provision (sum of imported `saljarprovision` values).
 - Current month deal list.
+- Per-deal provision column in the monthly deal table.
 
 Related files:
 - `Models/UserProfileViewModel.cs`
 - `Controllers/HomeController.cs`
 - `Views/Home/Profile.cshtml`
+
+## Post-scope delivery: Seller provision data pipeline and dev seeding
+
+Status: Implemented
+
+Delivered:
+- HubSpot deal parsing now reads `saljarprovision` via configurable mapping key:
+  - `HubSpot:ProvisionProperty` (default `saljarprovision`) in `appsettings.json`
+  - `Services/HubSpot/HubSpotOptions.cs`
+  - `Services/HubSpot/HubSpotClient.cs`
+  - `Services/HubSpot/IHubSpotClient.cs`
+- Imported deal storage now persists seller provision:
+  - new `HubSpotDealImports.SellerProvision` (`decimal(18,2)`)
+  - migration: `Migrations/20260222095205_AddSellerProvisionToHubSpotDeals.cs`
+  - EF model/config: `Models/HubSpotDealImport.cs`, `Data/STLForumContext.cs`
+  - sync upsert mapping: `Services/HubSpot/HubSpotSyncService.cs`
+- Profile calculations now include:
+  - total monthly provision
+  - provision per deal row
+  - files: `Controllers/HomeController.cs`, `Models/UserProfileViewModel.cs`, `Views/Home/Profile.cshtml`
+- Dev superadmin preview seed script updated:
+  - `scripts/seed_superadmin_preview_deals.sh`
+  - seeds `SellerProvision` values (`--start-provision`, `--step-provision`)
+  - seed mode now rewrites existing stored deals for the target superadmin (`OwnerUserId`) before inserting preview rows
 
 ## Deferred (Not in current scope)
 

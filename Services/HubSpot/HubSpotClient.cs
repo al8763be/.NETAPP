@@ -312,6 +312,7 @@ namespace WebApplication2.Services.HubSpot
                 _options.LastModifiedProperty,
                 _options.AmountProperty,
                 _options.CurrencyCodeProperty,
+                _options.ProvisionProperty,
                 _options.OwnerEmailProperty,
                 _options.OwnerIdProperty
             }
@@ -375,6 +376,7 @@ namespace WebApplication2.Services.HubSpot
                 var ownerEmail = ReadPropertyString(properties, _options.OwnerEmailProperty);
                 var ownerId = ReadPropertyString(properties, _options.OwnerIdProperty);
                 var amount = ParseNullableDecimal(ReadPropertyString(properties, _options.AmountProperty));
+                var sellerProvision = ParseNullableDecimal(ReadPropertyString(properties, _options.ProvisionProperty));
                 var currency = ReadPropertyString(properties, _options.CurrencyCodeProperty);
                 var dealName = ReadPropertyString(properties, _options.DealNameProperty);
 
@@ -391,6 +393,7 @@ namespace WebApplication2.Services.HubSpot
                     FulfilledDateUtc = fulfilledDateUtc,
                     LastModifiedUtc = lastModifiedUtc,
                     Amount = amount,
+                    SellerProvision = sellerProvision,
                     CurrencyCode = currency,
                     DealStage = dealStage,
                     PayloadHash = payloadHash

@@ -336,6 +336,7 @@ public class HubSpotSyncServiceTests
                             FulfilledDateUtc = firstSyncTime,
                             LastModifiedUtc = firstSyncTime,
                             Amount = 100m,
+                            SellerProvision = 10m,
                             CurrencyCode = "SEK",
                             DealStage = "closedwon",
                             PayloadHash = "payload-v1"
@@ -355,6 +356,7 @@ public class HubSpotSyncServiceTests
                             FulfilledDateUtc = secondSyncTime,
                             LastModifiedUtc = secondSyncTime,
                             Amount = 250m,
+                            SellerProvision = 25m,
                             CurrencyCode = "SEK",
                             DealStage = "closedwon",
                             PayloadHash = "payload-v2"
@@ -394,7 +396,95 @@ public class HubSpotSyncServiceTests
         Assert.Equal(user.Id, deal.OwnerUserId);
         Assert.Equal("Updated", deal.DealName);
         Assert.Equal(250m, deal.Amount);
+        Assert.Equal(25m, deal.SellerProvision);
         Assert.Equal("payload-v2", deal.PayloadHash);
+    }
+
+    [Fact]
+    public async Task RunIncrementalSyncAsync_RecalculatesContestEntries_UsesHubSpotOwnerData_AndDeduplicatesOwnerRows()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        var mappedUser = await env.CreateUserAsync("1234", "1234@stl.nu");
+
+        var contest = new Contest
+        {
+            Name = "HubSpot Leaderboard Contest",
+            StartDate = DateTime.Now.AddDays(-1),
+            EndDate = DateTime.Now.AddDays(1),
+            IsActive = true,
+            CreatedDate = DateTime.Now
+        };
+
+        env.Context.Contests.Add(contest);
+        env.Context.HubSpotOwnerMappings.Add(new HubSpotOwnerMapping
+        {
+            HubSpotOwnerId = "owner-dup",
+            OwnerUserId = mappedUser.Id,
+            OwnerUsername = mappedUser.UserName,
+            HubSpotOwnerEmail = "owner@stl.nu",
+            HubSpotFirstName = "Alice",
+            HubSpotLastName = "HubSpot",
+            HubSpotPrimaryTeamName = "Team North",
+            LastSeenUtc = DateTime.UtcNow
+        });
+        await env.Context.SaveChangesAsync();
+
+        var fulfilledAt = DateTime.UtcNow.AddMinutes(-15);
+        var client = new FakeHubSpotClient(
+            dealPages:
+            [
+                new HubSpotDealsPageResult
+                {
+                    Deals =
+                    [
+                        new HubSpotDealRecord
+                        {
+                            ExternalDealId = "deal-dedupe-1",
+                            OwnerId = "owner-dup",
+                            OwnerEmail = "owner@stl.nu",
+                            FulfilledDateUtc = fulfilledAt,
+                            LastModifiedUtc = fulfilledAt,
+                            PayloadHash = "dedupe-1"
+                        },
+                        new HubSpotDealRecord
+                        {
+                            ExternalDealId = "deal-dedupe-2",
+                            OwnerId = "owner-dup",
+                            OwnerEmail = "owner.alias@stl.nu",
+                            FulfilledDateUtc = fulfilledAt,
+                            LastModifiedUtc = fulfilledAt,
+                            PayloadHash = "dedupe-2"
+                        }
+                    ]
+                }
+            ],
+            owners: new Dictionary<string, HubSpotOwnerRecord?>
+            {
+                ["owner-dup"] = new HubSpotOwnerRecord
+                {
+                    OwnerId = "owner-dup",
+                    Email = "owner@stl.nu",
+                    FirstName = "Alice",
+                    LastName = "HubSpot",
+                    PrimaryTeamName = "Team North",
+                    IsArchived = false
+                }
+            });
+
+        var sut = CreateSut(env, client);
+
+        var result = await sut.RunIncrementalSyncAsync();
+
+        Assert.True(result.Succeeded);
+
+        var entries = await env.Context.ContestEntries
+            .Where(e => e.ContestId == contest.Id)
+            .ToListAsync();
+
+        Assert.Single(entries);
+        Assert.Equal(2, entries[0].DealsCount);
+        Assert.Equal("Alice HubSpot (Team North)", entries[0].EmployeeNumber);
+        Assert.DoesNotContain("1234", entries[0].EmployeeNumber);
     }
 
     private static HubSpotSyncService CreateSut(TestIdentityEnvironment env, IHubSpotClient client)

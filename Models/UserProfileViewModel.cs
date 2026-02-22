@@ -21,6 +21,7 @@ namespace WebApplication2.Models
 
         public int CurrentMonthFulfilledDealsCount { get; set; }
         public decimal CurrentMonthFulfilledDealsAmount { get; set; }
+        public decimal CurrentMonthFulfilledDealsProvision { get; set; }
         public List<UserHubSpotDealViewModel> CurrentMonthDeals { get; set; } = new();
     }
 
@@ -30,6 +31,7 @@ namespace WebApplication2.Models
         public string DealName { get; set; } = string.Empty;
         public DateTime FulfilledDateUtc { get; set; }
         public decimal? Amount { get; set; }
+        public decimal? SellerProvision { get; set; }
         public string CurrencyCode { get; set; } = string.Empty;
     }
 }

@@ -232,6 +232,7 @@ namespace WebApplication2.Services.HubSpot
                     OwnerUserId = ownerUser?.Id,
                     FulfilledDateUtc = deal.FulfilledDateUtc.Value,
                     Amount = deal.Amount,
+                    SellerProvision = deal.SellerProvision,
                     CurrencyCode = deal.CurrencyCode,
                     DealStage = deal.DealStage,
                     HubSpotLastModifiedUtc = deal.LastModifiedUtc,
@@ -250,6 +251,7 @@ namespace WebApplication2.Services.HubSpot
             existing.OwnerUserId = ownerUser?.Id;
             existing.FulfilledDateUtc = deal.FulfilledDateUtc.Value;
             existing.Amount = deal.Amount;
+            existing.SellerProvision = deal.SellerProvision;
             existing.CurrencyCode = deal.CurrencyCode;
             existing.DealStage = deal.DealStage;
             existing.HubSpotLastModifiedUtc = deal.LastModifiedUtc;
@@ -471,13 +473,11 @@ namespace WebApplication2.Services.HubSpot
                         (!string.IsNullOrWhiteSpace(d.HubSpotOwnerId) || !string.IsNullOrWhiteSpace(d.OwnerEmail)))
                     .GroupBy(d => new
                     {
-                        OwnerKey = !string.IsNullOrWhiteSpace(d.HubSpotOwnerId) ? d.HubSpotOwnerId! : d.OwnerEmail,
                         d.HubSpotOwnerId,
                         d.OwnerEmail
                     })
                     .Select(g => new
                     {
-                        OwnerKey = g.Key.OwnerKey,
                         HubSpotOwnerId = g.Key.HubSpotOwnerId,
                         OwnerEmail = g.Key.OwnerEmail,
                         DealsCount = g.Count()
@@ -490,14 +490,16 @@ namespace WebApplication2.Services.HubSpot
                 }
 
                 var ownerIds = groupedDeals
-                    .Where(g => !string.IsNullOrWhiteSpace(g.HubSpotOwnerId))
-                    .Select(g => g.HubSpotOwnerId!)
+                    .Select(g => NormalizeOwnerId(g.HubSpotOwnerId))
+                    .Where(id => id != null)
+                    .Select(id => id!)
                     .Distinct()
                     .ToList();
 
-                var ownerEmails = groupedDeals
-                    .Where(g => !string.IsNullOrWhiteSpace(g.OwnerEmail))
-                    .Select(g => g.OwnerEmail!)
+                var normalizedOwnerEmails = groupedDeals
+                    .Select(g => NormalizeOwnerEmail(g.OwnerEmail))
+                    .Where(email => email != null)
+                    .Select(email => email!)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
 
@@ -505,32 +507,45 @@ namespace WebApplication2.Services.HubSpot
                     .AsNoTracking()
                     .Where(m =>
                         ownerIds.Contains(m.HubSpotOwnerId) ||
-                        (m.HubSpotOwnerEmail != null && ownerEmails.Contains(m.HubSpotOwnerEmail)))
+                        (m.HubSpotOwnerEmail != null && normalizedOwnerEmails.Contains(m.HubSpotOwnerEmail.ToLower())))
                     .ToListAsync(cancellationToken);
 
-                var userIds = mappings
-                    .Where(m => !string.IsNullOrWhiteSpace(m.OwnerUserId))
-                    .Select(m => m.OwnerUserId!)
-                    .Distinct()
-                    .ToList();
-
-                var usersById = await _userManager.Users
-                    .Where(u => userIds.Contains(u.Id))
-                    .ToDictionaryAsync(u => u.Id, cancellationToken);
+                var groupedByOwner = new Dictionary<string, (string? HubSpotOwnerId, string? OwnerEmail, HubSpotOwnerMapping? Mapping, int DealsCount)>(
+                    StringComparer.OrdinalIgnoreCase);
 
                 foreach (var grouped in groupedDeals)
                 {
                     var mapping = ResolveOwnerMapping(mappings, grouped.HubSpotOwnerId, grouped.OwnerEmail);
-                    IdentityUser? mappedUser = null;
-                    if (!string.IsNullOrWhiteSpace(mapping?.OwnerUserId))
+
+                    var ownerKey = BuildOwnerAggregationKey(grouped.HubSpotOwnerId, grouped.OwnerEmail, mapping);
+                    if (groupedByOwner.TryGetValue(ownerKey, out var existing))
                     {
-                        usersById.TryGetValue(mapping.OwnerUserId!, out mappedUser);
+                        groupedByOwner[ownerKey] = (
+                            HubSpotOwnerId: FirstNonEmptyTrim(existing.HubSpotOwnerId, grouped.HubSpotOwnerId, mapping?.HubSpotOwnerId),
+                            OwnerEmail: FirstNonEmptyTrim(existing.OwnerEmail, grouped.OwnerEmail, mapping?.HubSpotOwnerEmail),
+                            Mapping: existing.Mapping ?? mapping,
+                            DealsCount: existing.DealsCount + grouped.DealsCount
+                        );
+                        continue;
                     }
 
-                    var displayLabel = BuildContestDisplayLabel(grouped.HubSpotOwnerId, grouped.OwnerEmail, mapping, mappedUser);
+                    groupedByOwner[ownerKey] = (
+                        HubSpotOwnerId: FirstNonEmptyTrim(grouped.HubSpotOwnerId, mapping?.HubSpotOwnerId),
+                        OwnerEmail: FirstNonEmptyTrim(grouped.OwnerEmail, mapping?.HubSpotOwnerEmail),
+                        Mapping: mapping,
+                        DealsCount: grouped.DealsCount
+                    );
+                }
+
+                foreach (var groupedOwner in groupedByOwner.Values)
+                {
+                    var displayLabel = BuildContestDisplayLabel(
+                        groupedOwner.HubSpotOwnerId,
+                        groupedOwner.OwnerEmail,
+                        groupedOwner.Mapping);
                     if (string.IsNullOrWhiteSpace(displayLabel))
                     {
-                        displayLabel = $"HubSpot-{grouped.OwnerKey}";
+                        displayLabel = "Okänd owner";
                     }
 
                     displayLabel = displayLabel.Trim();
@@ -542,9 +557,9 @@ namespace WebApplication2.Services.HubSpot
                     _context.ContestEntries.Add(new ContestEntry
                     {
                         ContestId = contest.Id,
-                        UserId = mappedUser?.Id,
+                        UserId = groupedOwner.Mapping?.OwnerUserId,
                         EmployeeNumber = displayLabel,
-                        DealsCount = grouped.DealsCount,
+                        DealsCount = groupedOwner.DealsCount,
                         UpdatedDate = DateTime.Now
                     });
                 }
@@ -560,7 +575,8 @@ namespace WebApplication2.Services.HubSpot
         {
             if (!string.IsNullOrWhiteSpace(hubSpotOwnerId))
             {
-                var byOwnerId = mappings.FirstOrDefault(m => m.HubSpotOwnerId == hubSpotOwnerId);
+                var normalizedOwnerId = NormalizeOwnerId(hubSpotOwnerId);
+                var byOwnerId = mappings.FirstOrDefault(m => m.HubSpotOwnerId == normalizedOwnerId);
                 if (byOwnerId != null)
                 {
                     return byOwnerId;
@@ -569,9 +585,10 @@ namespace WebApplication2.Services.HubSpot
 
             if (!string.IsNullOrWhiteSpace(ownerEmail))
             {
+                var normalizedEmail = NormalizeOwnerEmail(ownerEmail);
                 return mappings.FirstOrDefault(m =>
                     !string.IsNullOrWhiteSpace(m.HubSpotOwnerEmail) &&
-                    m.HubSpotOwnerEmail.Equals(ownerEmail, StringComparison.OrdinalIgnoreCase));
+                    m.HubSpotOwnerEmail.Equals(normalizedEmail, StringComparison.OrdinalIgnoreCase));
             }
 
             return null;
@@ -580,23 +597,12 @@ namespace WebApplication2.Services.HubSpot
         private static string BuildContestDisplayLabel(
             string? hubSpotOwnerId,
             string? ownerEmail,
-            HubSpotOwnerMapping? mapping,
-            IdentityUser? mappedUser)
+            HubSpotOwnerMapping? mapping)
         {
             var teamSuffix = string.Empty;
             if (!string.IsNullOrWhiteSpace(mapping?.HubSpotPrimaryTeamName))
             {
                 teamSuffix = $" ({mapping.HubSpotPrimaryTeamName})";
-            }
-
-            if (!string.IsNullOrWhiteSpace(mappedUser?.UserName))
-            {
-                return $"{mappedUser.UserName}{teamSuffix}";
-            }
-
-            if (!string.IsNullOrWhiteSpace(mapping?.OwnerUsername))
-            {
-                return $"{mapping.OwnerUsername}{teamSuffix}";
             }
 
             var mappedName = $"{mapping?.HubSpotFirstName} {mapping?.HubSpotLastName}".Trim();
@@ -605,17 +611,75 @@ namespace WebApplication2.Services.HubSpot
                 return $"{mappedName}{teamSuffix}";
             }
 
+            if (!string.IsNullOrWhiteSpace(mapping?.HubSpotOwnerEmail))
+            {
+                return $"{mapping.HubSpotOwnerEmail.Trim()}{teamSuffix}";
+            }
+
             if (!string.IsNullOrWhiteSpace(ownerEmail))
             {
-                return $"{ownerEmail}{teamSuffix}";
+                return $"{ownerEmail.Trim()}{teamSuffix}";
             }
 
             if (!string.IsNullOrWhiteSpace(hubSpotOwnerId))
             {
-                return $"HubSpot-{hubSpotOwnerId}{teamSuffix}";
+                return $"HubSpot-{hubSpotOwnerId.Trim()}{teamSuffix}";
             }
 
             return "Okänd owner";
+        }
+
+        private static string BuildOwnerAggregationKey(
+            string? hubSpotOwnerId,
+            string? ownerEmail,
+            HubSpotOwnerMapping? mapping)
+        {
+            var canonicalOwnerId = FirstNonEmptyTrim(hubSpotOwnerId, mapping?.HubSpotOwnerId);
+            if (!string.IsNullOrWhiteSpace(canonicalOwnerId))
+            {
+                return $"id:{canonicalOwnerId}";
+            }
+
+            var normalizedEmail = NormalizeOwnerEmail(FirstNonEmptyTrim(ownerEmail, mapping?.HubSpotOwnerEmail));
+            if (!string.IsNullOrWhiteSpace(normalizedEmail))
+            {
+                return $"email:{normalizedEmail}";
+            }
+
+            return $"unknown:{hubSpotOwnerId?.Trim()}:{ownerEmail?.Trim()}";
+        }
+
+        private static string? NormalizeOwnerId(string? hubSpotOwnerId)
+        {
+            if (string.IsNullOrWhiteSpace(hubSpotOwnerId))
+            {
+                return null;
+            }
+
+            return hubSpotOwnerId.Trim();
+        }
+
+        private static string? NormalizeOwnerEmail(string? ownerEmail)
+        {
+            if (string.IsNullOrWhiteSpace(ownerEmail))
+            {
+                return null;
+            }
+
+            return ownerEmail.Trim().ToLower();
+        }
+
+        private static string? FirstNonEmptyTrim(params string?[] values)
+        {
+            foreach (var value in values)
+            {
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    return value.Trim();
+                }
+            }
+
+            return null;
         }
     }
 }

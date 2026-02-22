@@ -26,7 +26,8 @@ public class HubSpotClientStatusTests
                 "email": "1111@stl.nu",
                 "hubspot_owner_id": "owner-1",
                 "amount": "100",
-                "deal_currency_code": "SEK"
+                "deal_currency_code": "SEK",
+                "saljarprovision": "12.50"
               }
             },
             {
@@ -39,7 +40,8 @@ public class HubSpotClientStatusTests
                 "email": "2222@stl.nu",
                 "hubspot_owner_id": "owner-2",
                 "amount": "200",
-                "deal_currency_code": "SEK"
+                "deal_currency_code": "SEK",
+                "saljarprovision": null
               }
             }
           ]
@@ -52,6 +54,8 @@ public class HubSpotClientStatusTests
 
         Assert.Equal(2, result.Deals.Count);
         Assert.All(result.Deals, d => Assert.True(d.IsFulfilled));
+        Assert.Equal(12.5m, result.Deals[0].SellerProvision);
+        Assert.Null(result.Deals[1].SellerProvision);
     }
 
     [Fact]
@@ -70,7 +74,8 @@ public class HubSpotClientStatusTests
                 "email": "3333@stl.nu",
                 "hubspot_owner_id": "owner-3",
                 "amount": "300",
-                "deal_currency_code": "SEK"
+                "deal_currency_code": "SEK",
+                "saljarprovision": "30.00"
               }
             }
           ]
@@ -99,6 +104,7 @@ public class HubSpotClientStatusTests
             OwnerIdProperty = "hubspot_owner_id",
             AmountProperty = "amount",
             CurrencyCodeProperty = "deal_currency_code",
+            ProvisionProperty = "saljarprovision",
             FulfilledValues =
             [
                 "nyregistrerad",
