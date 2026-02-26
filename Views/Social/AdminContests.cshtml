@@ -114,19 +114,11 @@ ViewData["Title"] = "Contest Administration";
         </a>
 
         <div class="d-flex align-items-center">
-            @if (User.IsInRole("SuperAdmin"))
-            {
-                <a asp-controller="Social" asp-action="HubSpotOwnerMappings" class="btn btn-outline-light btn-sm me-2">
-                    HubSpot Owners
-                </a>
-            }
             <a asp-controller="Home" asp-action="Profile" class="btn btn-outline-light btn-sm me-2">
                 Min profil
             </a>
             <!-- Klickbar logga ut till höger -->
-            <a href="@Url.Action("Logout", "Home")" class="navbar-brand">
-                <img src="~/images/loggaut.png" width="auto" height="40" alt="Logga ut">
-            </a>
+            <a href="@Url.Action("Logout", "Home")" class="btn btn-danger btn-sm">Sign out</a>
         </div>
     </nav>
 
@@ -317,10 +309,11 @@ ViewData["Title"] = "Contest Administration";
                 data.forEach((entry, index) => {
                     const position = index + 1;
                     const badge = position === 1 ? '🥇' : position === 2 ? '🥈' : position === 3 ? '🥉' : position;
+                    const displayName = entry.displayName || entry.employeeNumber;
                     html += `
                     <tr class="${position <= 3 ? 'table-warning' : ''}">
                         <td>${badge}</td>
-                        <td>${entry.employeeNumber}</td>
+                        <td>${displayName}</td>
                         <td><strong>${entry.dealsCount}</strong></td>
                     </tr>
                 `;

@@ -41,3 +41,7 @@ appsettings.*.local.json
 backups/
 scripts/
 *~
+
+# Local docs/data artifacts
+docs/
+provisionExcelSTL.xlsx

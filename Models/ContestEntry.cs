@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace WebApplication2.Models
 {
@@ -17,6 +18,9 @@ namespace WebApplication2.Models
         
         public int DealsCount { get; set; } = 0;
         public DateTime UpdatedDate { get; set; } = DateTime.Now;
+
+        [NotMapped]
+        public string? DisplayName { get; set; }
         
         // Navigation Properties
         public Contest Contest { get; set; } = null!;

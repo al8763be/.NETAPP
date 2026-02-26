@@ -173,6 +173,114 @@ namespace WebApplication2.Services.HubSpot
             }
         }
 
+        public async Task<HubSpotSyncRunResult> RebuildCurrentMonthOnlyAsync(CancellationToken cancellationToken = default)
+        {
+            if (!_options.Enabled)
+            {
+                return new HubSpotSyncRunResult
+                {
+                    Succeeded = true,
+                    Message = "HubSpot sync is disabled in configuration."
+                };
+            }
+
+            var run = new HubSpotSyncRun
+            {
+                StartedUtc = DateTime.UtcNow,
+                Status = "Started"
+            };
+
+            _context.HubSpotSyncRuns.Add(run);
+            await _context.SaveChangesAsync(cancellationToken);
+
+            try
+            {
+                var nowUtc = DateTime.UtcNow;
+                var monthStartUtc = new DateTime(nowUtc.Year, nowUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+                var monthEndUtc = monthStartUtc.AddMonths(1).AddTicks(-1);
+
+                await ClearHubSpotImportDataAsync(cancellationToken);
+
+                string? cursor = null;
+                var pageCount = 0;
+                while (pageCount < _options.MaxPagesPerRun)
+                {
+                    pageCount++;
+                    var page = await _hubSpotClient.SearchFulfilledDealsByClosedDateRangeAsync(
+                        monthStartUtc,
+                        monthEndUtc,
+                        cursor,
+                        _options.PageSize,
+                        cancellationToken);
+
+                    run.DealsFetched += page.Deals.Count;
+
+                    foreach (var deal in page.Deals)
+                    {
+                        var upsertResult = await UpsertDealAsync(deal, cancellationToken);
+                        run.DealsImported += upsertResult.Imported;
+                        run.DealsUpdated += upsertResult.Updated;
+                        run.DealsSkipped += upsertResult.Skipped;
+                    }
+
+                    cursor = page.NextCursor;
+                    if (string.IsNullOrWhiteSpace(cursor))
+                    {
+                        break;
+                    }
+                }
+
+                await RecalculateActiveContestEntriesAsync(cancellationToken);
+
+                var syncState = await _context.HubSpotSyncStates
+                    .FirstOrDefaultAsync(s => s.IntegrationName == "HubSpotDeals", cancellationToken);
+                if (syncState != null)
+                {
+                    syncState.LastSuccessfulSyncUtc = DateTime.UtcNow;
+                    syncState.LastCursor = null;
+                    syncState.LastError = null;
+                    syncState.LastAttemptUtc = DateTime.UtcNow;
+                }
+
+                run.Status = "Succeeded";
+                run.FinishedUtc = DateTime.UtcNow;
+
+                await _context.SaveChangesAsync(cancellationToken);
+
+                return new HubSpotSyncRunResult
+                {
+                    Succeeded = true,
+                    DealsFetched = run.DealsFetched,
+                    DealsImported = run.DealsImported,
+                    DealsUpdated = run.DealsUpdated,
+                    DealsSkipped = run.DealsSkipped,
+                    Message = "HubSpot month rebuild completed."
+                };
+            }
+            catch (Exception ex)
+            {
+                run.Status = "Failed";
+                run.ErrorMessage = ex.Message;
+                run.FinishedUtc = DateTime.UtcNow;
+
+                var syncState = await _context.HubSpotSyncStates
+                    .FirstOrDefaultAsync(s => s.IntegrationName == "HubSpotDeals", cancellationToken);
+                if (syncState != null)
+                {
+                    syncState.LastError = ex.Message;
+                }
+
+                await _context.SaveChangesAsync(cancellationToken);
+
+                _logger.LogError(ex, "HubSpot month rebuild failed for run {RunId}", run.Id);
+                return new HubSpotSyncRunResult
+                {
+                    Succeeded = false,
+                    Message = ex.Message
+                };
+            }
+        }
+
         private async Task<(int Imported, int Updated, int Skipped)> UpsertDealAsync(
             HubSpotDealRecord deal,
             CancellationToken cancellationToken)
@@ -199,27 +307,14 @@ namespace WebApplication2.Services.HubSpot
                 return (0, 1, 0);
             }
 
-            // Persist fulfilled deals only when owner id is available so deal rows are tied to HubSpot owner mapping.
-            if (string.IsNullOrWhiteSpace(deal.OwnerId))
+            var normalizedSaljId = NormalizeSaljId(deal.SaljId);
+            if (normalizedSaljId == null)
             {
                 return (0, 0, 1);
             }
 
-            var ownerEmail = deal.OwnerEmail;
-            HubSpotOwnerRecord? ownerRecord = null;
-            ownerRecord = await _hubSpotClient.GetOwnerByOwnerIdAsync(deal.OwnerId, cancellationToken);
-            if (string.IsNullOrWhiteSpace(ownerEmail))
-            {
-                ownerEmail = ownerRecord?.Email;
-            }
-
-            var ownerUser = await ResolveOwnerUserAsync(
-                deal.OwnerId,
-                ownerEmail ?? string.Empty,
-                ownerRecord,
-                cancellationToken);
-
-            var normalizedOwnerEmail = ownerEmail?.Trim() ?? string.Empty;
+            var ownerUser = await _userManager.FindByNameAsync(normalizedSaljId);
+            var normalizedOwnerEmail = deal.OwnerEmail?.Trim() ?? string.Empty;
 
             if (existing == null)
             {
@@ -227,7 +322,8 @@ namespace WebApplication2.Services.HubSpot
                 {
                     ExternalDealId = deal.ExternalDealId,
                     DealName = deal.DealName,
-                    HubSpotOwnerId = deal.OwnerId,
+                    HubSpotOwnerId = null,
+                    SaljId = normalizedSaljId,
                     OwnerEmail = normalizedOwnerEmail,
                     OwnerUserId = ownerUser?.Id,
                     FulfilledDateUtc = deal.FulfilledDateUtc.Value,
@@ -246,7 +342,8 @@ namespace WebApplication2.Services.HubSpot
             }
 
             existing.DealName = deal.DealName;
-            existing.HubSpotOwnerId = deal.OwnerId;
+            existing.HubSpotOwnerId = null;
+            existing.SaljId = normalizedSaljId;
             existing.OwnerEmail = normalizedOwnerEmail;
             existing.OwnerUserId = ownerUser?.Id;
             existing.FulfilledDateUtc = deal.FulfilledDateUtc.Value;
@@ -322,120 +419,43 @@ namespace WebApplication2.Services.HubSpot
             return (fetched, imported, updated, skipped);
         }
 
-        private async Task<IdentityUser?> ResolveOwnerUserAsync(
-            string? hubSpotOwnerId,
-            string ownerEmail,
-            HubSpotOwnerRecord? ownerRecord,
-            CancellationToken cancellationToken)
+        private string? NormalizeSaljId(string? saljId)
         {
-            HubSpotOwnerMapping? mapping = null;
-
-            if (!string.IsNullOrWhiteSpace(hubSpotOwnerId))
+            if (string.IsNullOrWhiteSpace(saljId))
             {
-                mapping = await _context.HubSpotOwnerMappings
-                    .FirstOrDefaultAsync(m => m.HubSpotOwnerId == hubSpotOwnerId, cancellationToken);
+                return null;
             }
 
-            IdentityUser? ownerUser = null;
-
-            // Prefer explicit persisted mapping when available.
-            if (!string.IsNullOrWhiteSpace(mapping?.OwnerUserId))
+            var trimmed = saljId.Trim();
+            if (_mappingService.IsValidEmployeeUsername(trimmed))
             {
-                ownerUser = await _userManager.FindByIdAsync(mapping.OwnerUserId);
-            }
-
-            // Fallback: infer local employee user from owner email format.
-            if (ownerUser == null && _mappingService.TryExtractEmployeeUsername(ownerEmail, out var employeeUsername))
-            {
-                ownerUser = await _userManager.FindByNameAsync(employeeUsername);
-            }
-
-            await UpsertOwnerMappingAsync(
-                mapping,
-                hubSpotOwnerId,
-                ownerEmail,
-                ownerRecord,
-                ownerUser,
-                cancellationToken);
-
-            return ownerUser;
-        }
-
-        private async Task UpsertOwnerMappingAsync(
-            HubSpotOwnerMapping? existingMapping,
-            string? hubSpotOwnerId,
-            string ownerEmail,
-            HubSpotOwnerRecord? ownerRecord,
-            IdentityUser? ownerUser,
-            CancellationToken cancellationToken)
-        {
-            if (string.IsNullOrWhiteSpace(hubSpotOwnerId))
-            {
-                return;
-            }
-
-            var mapping = existingMapping ?? new HubSpotOwnerMapping
-            {
-                HubSpotOwnerId = hubSpotOwnerId
-            };
-
-            mapping.HubSpotOwnerEmail = FirstNonEmpty(ownerRecord?.Email, ownerEmail, mapping.HubSpotOwnerEmail);
-
-            if (!string.IsNullOrWhiteSpace(ownerRecord?.FirstName))
-            {
-                mapping.HubSpotFirstName = ownerRecord.FirstName.Trim();
-            }
-
-            if (!string.IsNullOrWhiteSpace(ownerRecord?.LastName))
-            {
-                mapping.HubSpotLastName = ownerRecord.LastName.Trim();
-            }
-
-            if (!string.IsNullOrWhiteSpace(ownerRecord?.PrimaryTeamName))
-            {
-                mapping.HubSpotPrimaryTeamName = ownerRecord.PrimaryTeamName.Trim();
-            }
-
-            if (ownerRecord?.TeamNames != null && ownerRecord.TeamNames.Count > 0)
-            {
-                mapping.HubSpotTeamNames = string.Join(" | ", ownerRecord.TeamNames.Where(t => !string.IsNullOrWhiteSpace(t)));
-            }
-
-            if (ownerRecord != null)
-            {
-                mapping.IsArchived = ownerRecord.IsArchived;
-            }
-
-            mapping.LastSeenUtc = DateTime.UtcNow;
-            mapping.LastOwnerSyncUtc = DateTime.UtcNow;
-
-            // Keep stable explicit mapping if already present; otherwise auto-link when confidently resolved.
-            if (string.IsNullOrWhiteSpace(mapping.OwnerUserId) && ownerUser != null)
-            {
-                mapping.OwnerUserId = ownerUser.Id;
-            }
-
-            mapping.OwnerUsername = ownerUser?.UserName ?? mapping.OwnerUsername;
-
-            if (existingMapping == null)
-            {
-                _context.HubSpotOwnerMappings.Add(mapping);
-            }
-
-            await _context.SaveChangesAsync(cancellationToken);
-        }
-
-        private static string? FirstNonEmpty(params string?[] values)
-        {
-            foreach (var value in values)
-            {
-                if (!string.IsNullOrWhiteSpace(value))
-                {
-                    return value.Trim();
-                }
+                return trimmed;
             }
 
             return null;
+        }
+
+        private async Task ClearHubSpotImportDataAsync(CancellationToken cancellationToken)
+        {
+            var dealRows = await _context.HubSpotDealImports.ToListAsync(cancellationToken);
+            if (dealRows.Count > 0)
+            {
+                _context.HubSpotDealImports.RemoveRange(dealRows);
+            }
+
+            var ownerMappings = await _context.HubSpotOwnerMappings.ToListAsync(cancellationToken);
+            if (ownerMappings.Count > 0)
+            {
+                _context.HubSpotOwnerMappings.RemoveRange(ownerMappings);
+            }
+
+            var contestEntries = await _context.ContestEntries.ToListAsync(cancellationToken);
+            if (contestEntries.Count > 0)
+            {
+                _context.ContestEntries.RemoveRange(contestEntries);
+            }
+
+            await _context.SaveChangesAsync(cancellationToken);
         }
 
         private async Task RecalculateActiveContestEntriesAsync(CancellationToken cancellationToken)
@@ -470,16 +490,11 @@ namespace WebApplication2.Services.HubSpot
                     .Where(d =>
                         d.FulfilledDateUtc >= contestStartUtc &&
                         d.FulfilledDateUtc <= contestEndUtc &&
-                        (!string.IsNullOrWhiteSpace(d.HubSpotOwnerId) || !string.IsNullOrWhiteSpace(d.OwnerEmail)))
-                    .GroupBy(d => new
-                    {
-                        d.HubSpotOwnerId,
-                        d.OwnerEmail
-                    })
+                        !string.IsNullOrWhiteSpace(d.SaljId))
+                    .GroupBy(d => d.SaljId)
                     .Select(g => new
                     {
-                        HubSpotOwnerId = g.Key.HubSpotOwnerId,
-                        OwnerEmail = g.Key.OwnerEmail,
+                        SaljId = g.Key,
                         DealsCount = g.Count()
                     })
                     .ToListAsync(cancellationToken);
@@ -489,197 +504,55 @@ namespace WebApplication2.Services.HubSpot
                     continue;
                 }
 
-                var ownerIds = groupedDeals
-                    .Select(g => NormalizeOwnerId(g.HubSpotOwnerId))
-                    .Where(id => id != null)
-                    .Select(id => id!)
-                    .Distinct()
-                    .ToList();
-
-                var normalizedOwnerEmails = groupedDeals
-                    .Select(g => NormalizeOwnerEmail(g.OwnerEmail))
-                    .Where(email => email != null)
-                    .Select(email => email!)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-
-                var mappings = await _context.HubSpotOwnerMappings
-                    .AsNoTracking()
-                    .Where(m =>
-                        ownerIds.Contains(m.HubSpotOwnerId) ||
-                        (m.HubSpotOwnerEmail != null && normalizedOwnerEmails.Contains(m.HubSpotOwnerEmail.ToLower())))
-                    .ToListAsync(cancellationToken);
-
-                var groupedByOwner = new Dictionary<string, (string? HubSpotOwnerId, string? OwnerEmail, HubSpotOwnerMapping? Mapping, int DealsCount)>(
-                    StringComparer.OrdinalIgnoreCase);
-
+                var dealsByEmployeeNumber = new Dictionary<string, int>(StringComparer.Ordinal);
                 foreach (var grouped in groupedDeals)
                 {
-                    var mapping = ResolveOwnerMapping(mappings, grouped.HubSpotOwnerId, grouped.OwnerEmail);
-
-                    var ownerKey = BuildOwnerAggregationKey(grouped.HubSpotOwnerId, grouped.OwnerEmail, mapping);
-                    if (groupedByOwner.TryGetValue(ownerKey, out var existing))
+                    var saljId = NormalizeSaljId(grouped.SaljId);
+                    if (saljId == null)
                     {
-                        groupedByOwner[ownerKey] = (
-                            HubSpotOwnerId: FirstNonEmptyTrim(existing.HubSpotOwnerId, grouped.HubSpotOwnerId, mapping?.HubSpotOwnerId),
-                            OwnerEmail: FirstNonEmptyTrim(existing.OwnerEmail, grouped.OwnerEmail, mapping?.HubSpotOwnerEmail),
-                            Mapping: existing.Mapping ?? mapping,
-                            DealsCount: existing.DealsCount + grouped.DealsCount
-                        );
                         continue;
                     }
 
-                    groupedByOwner[ownerKey] = (
-                        HubSpotOwnerId: FirstNonEmptyTrim(grouped.HubSpotOwnerId, mapping?.HubSpotOwnerId),
-                        OwnerEmail: FirstNonEmptyTrim(grouped.OwnerEmail, mapping?.HubSpotOwnerEmail),
-                        Mapping: mapping,
-                        DealsCount: grouped.DealsCount
-                    );
+                    if (dealsByEmployeeNumber.TryGetValue(saljId, out var existingCount))
+                    {
+                        dealsByEmployeeNumber[saljId] = existingCount + grouped.DealsCount;
+                        continue;
+                    }
+
+                    dealsByEmployeeNumber[saljId] = grouped.DealsCount;
                 }
 
-                foreach (var groupedOwner in groupedByOwner.Values)
+                if (dealsByEmployeeNumber.Count == 0)
                 {
-                    var displayLabel = BuildContestDisplayLabel(
-                        groupedOwner.HubSpotOwnerId,
-                        groupedOwner.OwnerEmail,
-                        groupedOwner.Mapping);
-                    if (string.IsNullOrWhiteSpace(displayLabel))
-                    {
-                        displayLabel = "Okänd owner";
-                    }
+                    continue;
+                }
 
-                    displayLabel = displayLabel.Trim();
-                    if (displayLabel.Length > 50)
-                    {
-                        displayLabel = displayLabel[..50];
-                    }
+                var employeeNumbers = dealsByEmployeeNumber.Keys.ToList();
+                var usersByUsername = await _userManager.Users
+                    .AsNoTracking()
+                    .Where(u => u.UserName != null && employeeNumbers.Contains(u.UserName))
+                    .Select(u => new { u.Id, u.UserName })
+                    .ToListAsync(cancellationToken);
 
+                var userIdLookup = usersByUsername
+                    .Where(u => u.UserName != null)
+                    .ToDictionary(u => u.UserName!, u => u.Id, StringComparer.Ordinal);
+
+                foreach (var row in dealsByEmployeeNumber)
+                {
+                    userIdLookup.TryGetValue(row.Key, out var userId);
                     _context.ContestEntries.Add(new ContestEntry
                     {
                         ContestId = contest.Id,
-                        UserId = groupedOwner.Mapping?.OwnerUserId,
-                        EmployeeNumber = displayLabel,
-                        DealsCount = groupedOwner.DealsCount,
+                        UserId = userId,
+                        EmployeeNumber = row.Key,
+                        DealsCount = row.Value,
                         UpdatedDate = DateTime.Now
                     });
                 }
             }
 
             await _context.SaveChangesAsync(cancellationToken);
-        }
-
-        private static HubSpotOwnerMapping? ResolveOwnerMapping(
-            IEnumerable<HubSpotOwnerMapping> mappings,
-            string? hubSpotOwnerId,
-            string? ownerEmail)
-        {
-            if (!string.IsNullOrWhiteSpace(hubSpotOwnerId))
-            {
-                var normalizedOwnerId = NormalizeOwnerId(hubSpotOwnerId);
-                var byOwnerId = mappings.FirstOrDefault(m => m.HubSpotOwnerId == normalizedOwnerId);
-                if (byOwnerId != null)
-                {
-                    return byOwnerId;
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(ownerEmail))
-            {
-                var normalizedEmail = NormalizeOwnerEmail(ownerEmail);
-                return mappings.FirstOrDefault(m =>
-                    !string.IsNullOrWhiteSpace(m.HubSpotOwnerEmail) &&
-                    m.HubSpotOwnerEmail.Equals(normalizedEmail, StringComparison.OrdinalIgnoreCase));
-            }
-
-            return null;
-        }
-
-        private static string BuildContestDisplayLabel(
-            string? hubSpotOwnerId,
-            string? ownerEmail,
-            HubSpotOwnerMapping? mapping)
-        {
-            var teamSuffix = string.Empty;
-            if (!string.IsNullOrWhiteSpace(mapping?.HubSpotPrimaryTeamName))
-            {
-                teamSuffix = $" ({mapping.HubSpotPrimaryTeamName})";
-            }
-
-            var mappedName = $"{mapping?.HubSpotFirstName} {mapping?.HubSpotLastName}".Trim();
-            if (!string.IsNullOrWhiteSpace(mappedName))
-            {
-                return $"{mappedName}{teamSuffix}";
-            }
-
-            if (!string.IsNullOrWhiteSpace(mapping?.HubSpotOwnerEmail))
-            {
-                return $"{mapping.HubSpotOwnerEmail.Trim()}{teamSuffix}";
-            }
-
-            if (!string.IsNullOrWhiteSpace(ownerEmail))
-            {
-                return $"{ownerEmail.Trim()}{teamSuffix}";
-            }
-
-            if (!string.IsNullOrWhiteSpace(hubSpotOwnerId))
-            {
-                return $"HubSpot-{hubSpotOwnerId.Trim()}{teamSuffix}";
-            }
-
-            return "Okänd owner";
-        }
-
-        private static string BuildOwnerAggregationKey(
-            string? hubSpotOwnerId,
-            string? ownerEmail,
-            HubSpotOwnerMapping? mapping)
-        {
-            var canonicalOwnerId = FirstNonEmptyTrim(hubSpotOwnerId, mapping?.HubSpotOwnerId);
-            if (!string.IsNullOrWhiteSpace(canonicalOwnerId))
-            {
-                return $"id:{canonicalOwnerId}";
-            }
-
-            var normalizedEmail = NormalizeOwnerEmail(FirstNonEmptyTrim(ownerEmail, mapping?.HubSpotOwnerEmail));
-            if (!string.IsNullOrWhiteSpace(normalizedEmail))
-            {
-                return $"email:{normalizedEmail}";
-            }
-
-            return $"unknown:{hubSpotOwnerId?.Trim()}:{ownerEmail?.Trim()}";
-        }
-
-        private static string? NormalizeOwnerId(string? hubSpotOwnerId)
-        {
-            if (string.IsNullOrWhiteSpace(hubSpotOwnerId))
-            {
-                return null;
-            }
-
-            return hubSpotOwnerId.Trim();
-        }
-
-        private static string? NormalizeOwnerEmail(string? ownerEmail)
-        {
-            if (string.IsNullOrWhiteSpace(ownerEmail))
-            {
-                return null;
-            }
-
-            return ownerEmail.Trim().ToLower();
-        }
-
-        private static string? FirstNonEmptyTrim(params string?[] values)
-        {
-            foreach (var value in values)
-            {
-                if (!string.IsNullOrWhiteSpace(value))
-                {
-                    return value.Trim();
-                }
-            }
-
-            return null;
         }
     }
 }

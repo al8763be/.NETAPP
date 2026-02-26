@@ -5,12 +5,24 @@ using WebApplication2.Models;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.Mvc.Rendering;
+using System.Text.RegularExpressions;
 
 namespace WebApplication2.Controllers
 {
     public class HomeController : Controller
     {
         private const string RememberedEmployeeNumberCookieName = "RememberedEmployeeNumber";
+        private static readonly Regex EmployeeNumberPattern = new(@"^\d{4}$", RegexOptions.Compiled);
+        private static readonly string[] SupportedRegions =
+        {
+            "Malmö",
+            "Jönköping",
+            "Sundsvall",
+            "Göteborg",
+            "Stockholm"
+        };
+        private static readonly HashSet<string> SupportedRegionSet = new(SupportedRegions, StringComparer.OrdinalIgnoreCase);
         private readonly STLForumContext _context;
         private readonly ILogger<HomeController> _logger;
         private readonly UserManager<IdentityUser> _userManager;
@@ -143,29 +155,40 @@ namespace WebApplication2.Controllers
         [Authorize(Roles = "SuperAdmin")]
         public async Task<IActionResult> Admin()
         {
-            // Get all users with their roles
             var users = await _userManager.Users.ToListAsync();
-            
-            // Create a list to hold user info with roles
-            var usersWithRoles = new List<(IdentityUser User, bool IsAdmin)>();
-            
-            foreach (var user in users)
-            {
-                var isAdmin = await _userManager.IsInRoleAsync(user, "SuperAdmin");
-                usersWithRoles.Add((user, isAdmin));
-            }
-            
-            ViewBag.UsersWithRoles = usersWithRoles;
+            await PopulateAdminViewDataAsync(users, string.Empty);
             return View(users);
         }
 
         [HttpPost]
         [Authorize(Roles = "SuperAdmin")]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> AddUser(string employeeNumber, bool makeAdmin = false)
+        public async Task<IActionResult> AddUser(string employeeNumber, string fullName, string region, bool makeAdmin = false)
         {
             try
             {
+                employeeNumber = (employeeNumber ?? string.Empty).Trim();
+                fullName = (fullName ?? string.Empty).Trim();
+                region = (region ?? string.Empty).Trim();
+
+                if (!EmployeeNumberPattern.IsMatch(employeeNumber))
+                {
+                    TempData["ErrorMessage"] = "Användarnamn måste vara exakt fyra siffror.";
+                    return RedirectToAction("Admin");
+                }
+
+                if (string.IsNullOrWhiteSpace(fullName))
+                {
+                    TempData["ErrorMessage"] = "Namn måste fyllas i.";
+                    return RedirectToAction("Admin");
+                }
+
+                if (!SupportedRegionSet.Contains(region))
+                {
+                    TempData["ErrorMessage"] = "Ogiltig region vald.";
+                    return RedirectToAction("Admin");
+                }
+
                 // Check if employee number already exists
                 var existingUser = await _userManager.FindByNameAsync(employeeNumber);
 
@@ -189,6 +212,32 @@ namespace WebApplication2.Controllers
 
                 if (result.Succeeded)
                 {
+                    var existingProfile = await _context.EmployeeProfiles
+                        .FirstOrDefaultAsync(p => p.EmployeeNumber == employeeNumber);
+
+                    if (existingProfile == null)
+                    {
+                        _context.EmployeeProfiles.Add(new EmployeeProfile
+                        {
+                            EmployeeNumber = employeeNumber,
+                            FullName = fullName,
+                            Region = region,
+                            Role = null,
+                            UserId = newUser.Id,
+                            CreatedUtc = DateTime.UtcNow,
+                            UpdatedUtc = DateTime.UtcNow
+                        });
+                    }
+                    else
+                    {
+                        existingProfile.FullName = fullName;
+                        existingProfile.Region = region;
+                        existingProfile.UserId = newUser.Id;
+                        existingProfile.UpdatedUtc = DateTime.UtcNow;
+                    }
+
+                    await _context.SaveChangesAsync();
+
                     // If makeAdmin is checked, add to SuperAdmin role
                     if (makeAdmin)
                     {
@@ -200,11 +249,11 @@ namespace WebApplication2.Controllers
                         
                         await _userManager.AddToRoleAsync(newUser, "SuperAdmin");
                         _logger.LogInformation($"New admin user created: {employeeNumber} by {User.Identity.Name}");
-                        TempData["SuccessMessage"] = $"Admin-användare {employeeNumber} har skapats med lösenord: {password}";
+                        TempData["SuccessMessage"] = $"Admin-användare {employeeNumber} ({fullName}, {region}) har skapats med lösenord: {password}";
                     }
                     else
                     {
-                        TempData["SuccessMessage"] = $"Användare {employeeNumber} har skapats med lösenord: {password}";
+                        TempData["SuccessMessage"] = $"Användare {employeeNumber} ({fullName}, {region}) har skapats med lösenord: {password}";
                     }
                 }
                 else
@@ -393,26 +442,67 @@ namespace WebApplication2.Controllers
 
             if (!string.IsNullOrEmpty(searchTerm))
             {
-                users = await _userManager.Users
-                    .Where(u => u.UserName.Contains(searchTerm))
+                searchTerm = searchTerm.Trim();
+                var matchingEmployeeNumbers = await _context.EmployeeProfiles
+                    .AsNoTracking()
+                    .Where(p =>
+                        p.EmployeeNumber.Contains(searchTerm) ||
+                        p.FullName.Contains(searchTerm) ||
+                        p.Region.Contains(searchTerm) ||
+                        (p.Role != null && p.Role.Contains(searchTerm)))
+                    .Select(p => p.EmployeeNumber)
                     .ToListAsync();
-                ViewBag.SearchTerm = searchTerm;
+
+                users = await _userManager.Users
+                    .Where(u =>
+                        (u.UserName != null && u.UserName.Contains(searchTerm)) ||
+                        (u.Email != null && u.Email.Contains(searchTerm)) ||
+                        (u.UserName != null && matchingEmployeeNumbers.Contains(u.UserName)))
+                    .ToListAsync();
             }
             else
             {
                 users = await _userManager.Users.ToListAsync();
+                searchTerm = string.Empty;
             }
 
-            // Get roles for display
+            await PopulateAdminViewDataAsync(users, searchTerm);
+            return View("Admin", users);
+        }
+
+        private async Task PopulateAdminViewDataAsync(IReadOnlyCollection<IdentityUser> users, string searchTerm)
+        {
             var usersWithRoles = new List<(IdentityUser User, bool IsAdmin)>();
             foreach (var user in users)
             {
                 var isAdmin = await _userManager.IsInRoleAsync(user, "SuperAdmin");
                 usersWithRoles.Add((user, isAdmin));
             }
-            
+
+            var employeeNumbers = users
+                .Select(u => u.UserName?.Trim())
+                .Where(u => !string.IsNullOrWhiteSpace(u))
+                .Select(u => u!)
+                .Distinct()
+                .ToList();
+
+            var profilesByEmployeeNumber = await _context.EmployeeProfiles
+                .AsNoTracking()
+                .Where(p => employeeNumbers.Contains(p.EmployeeNumber))
+                .ToDictionaryAsync(p => p.EmployeeNumber, p => p);
+
+            var regionOptions = SupportedRegions
+                .Select(region => new SelectListItem
+                {
+                    Value = region,
+                    Text = region
+                })
+                .ToList();
+
             ViewBag.UsersWithRoles = usersWithRoles;
-            return View("Admin", users);
+            ViewBag.UserProfilesByEmployeeNumber = profilesByEmployeeNumber;
+            ViewBag.RegionOptions = regionOptions;
+            ViewBag.SearchTerm = searchTerm;
         }
 
         [HttpGet]
@@ -426,9 +516,7 @@ namespace WebApplication2.Controllers
             }
 
             var roles = await _userManager.GetRolesAsync(user);
-            var ownerMapping = await _context.HubSpotOwnerMappings
-                .AsNoTracking()
-                .FirstOrDefaultAsync(m => m.OwnerUserId == user.Id);
+            var username = (user.UserName ?? string.Empty).Trim();
 
             var monthStartUtc = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
             var monthEndUtc = monthStartUtc.AddMonths(1);
@@ -436,7 +524,7 @@ namespace WebApplication2.Controllers
             var currentMonthDeals = await _context.HubSpotDealImports
                 .AsNoTracking()
                 .Where(d =>
-                    d.OwnerUserId == user.Id &&
+                    d.SaljId == username &&
                     d.FulfilledDateUtc >= monthStartUtc &&
                     d.FulfilledDateUtc < monthEndUtc)
                 .OrderByDescending(d => d.FulfilledDateUtc)
@@ -463,10 +551,6 @@ namespace WebApplication2.Controllers
                 AnswersCount = await _context.Answers.CountAsync(a => a.UserId == user.Id),
                 LikesGivenCount = await _context.Likes.CountAsync(l => l.UserId == user.Id),
                 ContestEntriesCount = await _context.ContestEntries.CountAsync(ce => ce.UserId == user.Id),
-                HubSpotOwnerId = ownerMapping?.HubSpotOwnerId,
-                HubSpotOwnerEmail = ownerMapping?.HubSpotOwnerEmail,
-                HubSpotOwnerDisplayName = $"{ownerMapping?.HubSpotFirstName} {ownerMapping?.HubSpotLastName}".Trim(),
-                HubSpotOwnerArchived = ownerMapping?.IsArchived,
                 CurrentMonthDeals = currentMonthDeals,
                 CurrentMonthFulfilledDealsCount = currentMonthDeals.Count,
                 CurrentMonthFulfilledDealsAmount = currentMonthDeals.Sum(d => d.Amount ?? 0m),

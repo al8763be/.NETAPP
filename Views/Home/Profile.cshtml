@@ -60,9 +60,7 @@
             <img src="~/images/stl-loga.png" width="auto" height="50" alt="STL Logga">
         </a>
         <div class="d-flex align-items-center">
-            <a href="@Url.Action("Logout", "Home")" class="navbar-brand">
-                <img src="~/images/loggaut.png" width="auto" height="40" alt="Logga ut">
-            </a>
+            <a href="@Url.Action("Logout", "Home")" class="btn btn-danger btn-sm">Sign out</a>
         </div>
     </nav>
     <div class="hero-image">
@@ -79,29 +77,8 @@
             <div class="col-lg-8">
                 <div class="card shadow-sm">
                     <div class="card-body p-4">
-                        <h4 class="mb-3">Användarinformation</h4>
-                        <p class="mb-2"><strong>Användarnamn:</strong> @Model.Username</p>
-                        <p class="mb-2"><strong>E-post:</strong> @(string.IsNullOrWhiteSpace(Model.Email) ? "Ej angiven" : Model.Email)</p>
-                        <p class="mb-2"><strong>E-post verifierad:</strong> @(Model.EmailConfirmed ? "Ja" : "Nej")</p>
-                        <p class="mb-2"><strong>Tvåfaktorsautentisering:</strong> @(Model.TwoFactorEnabled ? "Aktiverad" : "Inte aktiverad")</p>
-                        <p class="mb-3"><strong>Roller:</strong> @(Model.Roles.Any() ? string.Join(", ", Model.Roles) : "Inga roller")</p>
-
-                        <hr/>
-                        <h5 class="mb-3">HubSpot-koppling</h5>
-                        @if (Model.HasHubSpotOwnerMapping)
-                        {
-                            <p class="mb-2"><strong>HubSpot owner ID:</strong> @Model.HubSpotOwnerId</p>
-                            <p class="mb-2"><strong>HubSpot e-post:</strong> @(string.IsNullOrWhiteSpace(Model.HubSpotOwnerEmail) ? "Ej tillgänglig" : Model.HubSpotOwnerEmail)</p>
-                            <p class="mb-2"><strong>HubSpot namn:</strong> @(string.IsNullOrWhiteSpace(Model.HubSpotOwnerDisplayName) ? "Ej tillgängligt" : Model.HubSpotOwnerDisplayName)</p>
-                            <p class="mb-3"><strong>HubSpot status:</strong> @(Model.HubSpotOwnerArchived == true ? "Arkiverad" : "Aktiv")</p>
-                        }
-                        else
-                        {
-                            <p class="text-muted mb-3">Ingen HubSpot owner-koppling hittades för ditt konto ännu.</p>
-                        }
-
-                        <hr/>
-                        <h5 class="mb-3">Månadens uppfyllda affärer</h5>
+                        <h5 class="mb-2">Månadens uppfyllda affärer</h5>
+                        <p class="text-muted mb-3">Visar affärer för säljare <strong>@Model.Username</strong>.</p>
                         <div class="row g-3 mb-3">
                             <div class="col-sm-4">
                                 <div class="p-3 border rounded bg-light">

@@ -19,6 +19,7 @@ namespace WebApplication2.Data
         public DbSet<Like> Likes { get; set; }
         public DbSet<Contest> Contests { get; set; }
         public DbSet<ContestEntry> ContestEntries { get; set; }
+        public DbSet<EmployeeProfile> EmployeeProfiles { get; set; }
         public DbSet<HubSpotDealImport> HubSpotDealImports { get; set; }
         public DbSet<HubSpotOwnerMapping> HubSpotOwnerMappings { get; set; }
         public DbSet<HubSpotSyncState> HubSpotSyncStates { get; set; }
@@ -94,10 +95,32 @@ namespace WebApplication2.Data
                 entity.HasIndex(ce => new { ce.ContestId, ce.EmployeeNumber }).IsUnique();
             });
 
+            modelBuilder.Entity<EmployeeProfile>(entity =>
+            {
+                entity.Property(p => p.EmployeeNumber).HasMaxLength(50).IsRequired();
+                entity.Property(p => p.FullName).HasMaxLength(128).IsRequired();
+                entity.Property(p => p.Region).HasMaxLength(64).IsRequired();
+                entity.Property(p => p.Role).HasMaxLength(64);
+                entity.Property(p => p.UserId).HasMaxLength(450);
+                entity.Property(p => p.CreatedUtc).HasColumnType("datetime2");
+                entity.Property(p => p.UpdatedUtc).HasColumnType("datetime2");
+
+                entity.HasIndex(p => p.EmployeeNumber).IsUnique();
+                entity.HasIndex(p => p.UserId)
+                    .IsUnique()
+                    .HasFilter("[UserId] IS NOT NULL");
+
+                entity.HasOne(p => p.User)
+                    .WithMany()
+                    .HasForeignKey(p => p.UserId)
+                    .OnDelete(DeleteBehavior.SetNull);
+            });
+
             modelBuilder.Entity<HubSpotDealImport>(entity =>
             {
                 entity.Property(d => d.ExternalDealId).HasMaxLength(128).IsRequired();
                 entity.Property(d => d.HubSpotOwnerId).HasMaxLength(64);
+                entity.Property(d => d.SaljId).HasMaxLength(32);
                 entity.Property(d => d.OwnerEmail).HasMaxLength(256).IsRequired();
                 entity.Property(d => d.OwnerUserId).HasMaxLength(450);
                 entity.Property(d => d.DealName).HasMaxLength(512);
@@ -110,6 +133,7 @@ namespace WebApplication2.Data
                 entity.HasIndex(d => d.ExternalDealId).IsUnique();
                 entity.HasIndex(d => new { d.OwnerUserId, d.FulfilledDateUtc });
                 entity.HasIndex(d => new { d.HubSpotOwnerId, d.FulfilledDateUtc });
+                entity.HasIndex(d => new { d.SaljId, d.FulfilledDateUtc });
 
                 entity.HasOne(d => d.OwnerUser)
                     .WithMany()

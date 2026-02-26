@@ -26,6 +26,8 @@ namespace WebApplication2.Services.HubSpot
         public string? DealName { get; set; }
         public string? OwnerEmail { get; set; }
         public string? OwnerId { get; set; }
+        public string? SaljId { get; set; }
+        public List<string> ContactIds { get; set; } = new();
         public bool IsFulfilled { get; set; } = true;
         public DateTime? FulfilledDateUtc { get; set; }
         public DateTime? LastModifiedUtc { get; set; }

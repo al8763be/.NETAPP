@@ -12,25 +12,13 @@ namespace WebApplication2.Tests.Controllers;
 public class HomeControllerProfileTests
 {
     [Fact]
-    public async Task Profile_ReturnsCurrentMonthHubSpotAggregationAndOwnerInfo()
+    public async Task Profile_ReturnsCurrentMonthHubSpotAggregationForLoggedInSaljare()
     {
         using var env = TestIdentityEnvironment.Create();
         var user = await env.CreateUserAsync("5555", "5555@stl.nu");
         var otherUser = await env.CreateUserAsync("6666", "6666@stl.nu");
 
         var monthStartUtc = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-
-        env.Context.HubSpotOwnerMappings.Add(new HubSpotOwnerMapping
-        {
-            HubSpotOwnerId = "owner-5555",
-            HubSpotOwnerEmail = "5555@stl.nu",
-            HubSpotFirstName = "Eva",
-            HubSpotLastName = "Seller",
-            OwnerUserId = user.Id,
-            OwnerUsername = user.UserName,
-            LastSeenUtc = DateTime.UtcNow,
-            IsArchived = false
-        });
 
         env.Context.HubSpotDealImports.AddRange(
             new HubSpotDealImport
@@ -39,6 +27,7 @@ public class HomeControllerProfileTests
                 DealName = "Included one",
                 OwnerEmail = "5555@stl.nu",
                 OwnerUserId = user.Id,
+                SaljId = "5555",
                 FulfilledDateUtc = monthStartUtc.AddDays(3),
                 Amount = 125m,
                 SellerProvision = 12.5m,
@@ -52,6 +41,7 @@ public class HomeControllerProfileTests
                 DealName = "Included two",
                 OwnerEmail = "5555@stl.nu",
                 OwnerUserId = user.Id,
+                SaljId = "5555",
                 FulfilledDateUtc = monthStartUtc.AddDays(5),
                 Amount = null,
                 SellerProvision = 7.25m,
@@ -65,6 +55,7 @@ public class HomeControllerProfileTests
                 DealName = "Excluded old month",
                 OwnerEmail = "5555@stl.nu",
                 OwnerUserId = user.Id,
+                SaljId = "5555",
                 FulfilledDateUtc = monthStartUtc.AddSeconds(-1),
                 Amount = 999m,
                 SellerProvision = 99m,
@@ -78,6 +69,7 @@ public class HomeControllerProfileTests
                 DealName = "Excluded other user",
                 OwnerEmail = "6666@stl.nu",
                 OwnerUserId = otherUser.Id,
+                SaljId = "6666",
                 FulfilledDateUtc = monthStartUtc.AddDays(4),
                 Amount = 500m,
                 SellerProvision = 50m,
@@ -110,10 +102,7 @@ public class HomeControllerProfileTests
         var model = Assert.IsType<UserProfileViewModel>(viewResult.Model);
 
         Assert.Equal(user.Id, model.UserId);
-        Assert.True(model.HasHubSpotOwnerMapping);
-        Assert.Equal("owner-5555", model.HubSpotOwnerId);
-        Assert.Equal("5555@stl.nu", model.HubSpotOwnerEmail);
-        Assert.Equal("Eva Seller", model.HubSpotOwnerDisplayName);
+        Assert.Equal("5555", model.Username);
 
         Assert.Equal(2, model.CurrentMonthFulfilledDealsCount);
         Assert.Equal(125m, model.CurrentMonthFulfilledDealsAmount);

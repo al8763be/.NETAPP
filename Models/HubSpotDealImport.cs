@@ -9,6 +9,7 @@ namespace WebApplication2.Models
         public string? DealName { get; set; }
         public string? HubSpotOwnerId { get; set; }
         public HubSpotOwnerMapping? HubSpotOwner { get; set; }
+        public string? SaljId { get; set; }
         public string OwnerEmail { get; set; } = string.Empty;
         public string? OwnerUserId { get; set; }
         public IdentityUser? OwnerUser { get; set; }

@@ -3,6 +3,7 @@ namespace WebApplication2.Services.HubSpot
     public interface IHubSpotSyncService
     {
         Task<HubSpotSyncRunResult> RunIncrementalSyncAsync(CancellationToken cancellationToken = default);
+        Task<HubSpotSyncRunResult> RebuildCurrentMonthOnlyAsync(CancellationToken cancellationToken = default);
     }
 
     public class HubSpotSyncRunResult

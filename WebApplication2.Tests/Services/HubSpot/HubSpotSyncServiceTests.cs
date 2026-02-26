@@ -12,7 +12,65 @@ namespace WebApplication2.Tests.Services.HubSpot;
 public class HubSpotSyncServiceTests
 {
     [Fact]
-    public async Task RunIncrementalSyncAsync_SkipsDealWhenOwnerIdIsMissing()
+    public async Task RebuildCurrentMonthOnlyAsync_ClearsExistingHubSpotData_AndImportsCurrentMonthDeals()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        var user = await env.CreateUserAsync("5555", "5555@stl.nu");
+
+        env.Context.HubSpotOwnerMappings.Add(new HubSpotOwnerMapping
+        {
+            HubSpotOwnerId = "owner-old",
+            OwnerUserId = user.Id,
+            OwnerUsername = user.UserName,
+            LastSeenUtc = DateTime.UtcNow
+        });
+        env.Context.HubSpotDealImports.Add(new HubSpotDealImport
+        {
+            ExternalDealId = "old-deal",
+            HubSpotOwnerId = "owner-old",
+            SaljId = "5555",
+            OwnerEmail = "old@stl.nu",
+            OwnerUserId = user.Id,
+            FulfilledDateUtc = DateTime.UtcNow.AddMonths(-2),
+            FirstSeenUtc = DateTime.UtcNow,
+            LastSeenUtc = DateTime.UtcNow
+        });
+        await env.Context.SaveChangesAsync();
+
+        var client = new FakeHubSpotClient(
+            dealPages:
+            [
+                new HubSpotDealsPageResult
+                {
+                    Deals =
+                    [
+                        new HubSpotDealRecord
+                        {
+                            ExternalDealId = "new-deal",
+                            OwnerId = "owner-new",
+                            SaljId = "5555",
+                            OwnerEmail = null,
+                            IsFulfilled = true,
+                            FulfilledDateUtc = DateTime.UtcNow,
+                            LastModifiedUtc = DateTime.UtcNow,
+                            PayloadHash = "hash-new"
+                        }
+                    ]
+                }
+            ]);
+
+        var sut = CreateSut(env, client);
+
+        var result = await sut.RebuildCurrentMonthOnlyAsync();
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.DealsImported);
+        Assert.Equal("new-deal", (await env.Context.HubSpotDealImports.SingleAsync()).ExternalDealId);
+        Assert.Empty(await env.Context.HubSpotOwnerMappings.ToListAsync());
+    }
+
+    [Fact]
+    public async Task RunIncrementalSyncAsync_SkipsDealWhenSaljIdIsMissing()
     {
         using var env = TestIdentityEnvironment.Create();
 
@@ -49,17 +107,61 @@ public class HubSpotSyncServiceTests
     }
 
     [Fact]
-    public async Task RunIncrementalSyncAsync_UsesStoredMappingBeforeEmailFallback_AndPersistsOwnerMetadata()
+    public async Task RunIncrementalSyncAsync_ImportsDealWhenOwnerIdIsMissingButSaljIdExists()
     {
         using var env = TestIdentityEnvironment.Create();
-        var mappedUser = await env.CreateUserAsync("1111", "1111@stl.nu");
-        await env.CreateUserAsync("2222", "2222@stl.nu");
+        var user = await env.CreateUserAsync("5555", "5555@stl.nu");
+
+        var client = new FakeHubSpotClient(
+            dealPages:
+            [
+                new HubSpotDealsPageResult
+                {
+                    Deals =
+                    [
+                        new HubSpotDealRecord
+                        {
+                            ExternalDealId = "deal-no-owner-id-with-saljid",
+                            OwnerId = null,
+                            SaljId = "5555",
+                            OwnerEmail = "unknown@stl.nu",
+                            DealName = "Missing owner id but has saljid",
+                            FulfilledDateUtc = DateTime.UtcNow,
+                            LastModifiedUtc = DateTime.UtcNow,
+                            Amount = 90m,
+                            CurrencyCode = "SEK",
+                            PayloadHash = "hash-missing-owner-id-with-saljid"
+                        }
+                    ]
+                }
+            ]);
+
+        var sut = CreateSut(env, client);
+
+        var result = await sut.RunIncrementalSyncAsync();
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.DealsImported);
+        Assert.Equal(0, result.DealsSkipped);
+
+        var importedDeal = await env.Context.HubSpotDealImports.SingleAsync();
+        Assert.Equal("5555", importedDeal.SaljId);
+        Assert.Equal(user.Id, importedDeal.OwnerUserId);
+        Assert.Null(importedDeal.HubSpotOwnerId);
+    }
+
+    [Fact]
+    public async Task RunIncrementalSyncAsync_UsesSaljIdDirectly_AndIgnoresOwnerMappings()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        var saljareUser = await env.CreateUserAsync("1111", "1111@stl.nu");
+        var mappedButDifferentUser = await env.CreateUserAsync("2222", "2222@stl.nu");
 
         env.Context.HubSpotOwnerMappings.Add(new HubSpotOwnerMapping
         {
             HubSpotOwnerId = "owner-1",
-            OwnerUserId = mappedUser.Id,
-            OwnerUsername = mappedUser.UserName,
+            OwnerUserId = mappedButDifferentUser.Id,
+            OwnerUsername = mappedButDifferentUser.UserName,
             HubSpotOwnerEmail = "old@stl.nu",
             LastSeenUtc = DateTime.UtcNow
         });
@@ -76,8 +178,9 @@ public class HubSpotSyncServiceTests
                         {
                             ExternalDealId = "deal-1",
                             OwnerId = "owner-1",
-                            OwnerEmail = "2222@stl.nu",
-                            DealName = "Stored mapping precedence",
+                            OwnerEmail = "ignored@stl.nu",
+                            SaljId = "1111",
+                            DealName = "SaljId precedence",
                             FulfilledDateUtc = DateTime.UtcNow,
                             LastModifiedUtc = DateTime.UtcNow,
                             Amount = 100m,
@@ -86,18 +189,7 @@ public class HubSpotSyncServiceTests
                         }
                     ]
                 }
-            ],
-            owners: new Dictionary<string, HubSpotOwnerRecord?>
-            {
-                ["owner-1"] = new HubSpotOwnerRecord
-                {
-                    OwnerId = "owner-1",
-                    Email = "2222@stl.nu",
-                    FirstName = "Alice",
-                    LastName = "Owner",
-                    IsArchived = false
-                }
-            });
+            ]);
 
         var sut = CreateSut(env, client);
 
@@ -108,18 +200,15 @@ public class HubSpotSyncServiceTests
         Assert.Equal(0, result.DealsSkipped);
 
         var deal = await env.Context.HubSpotDealImports.SingleAsync();
-        Assert.Equal(mappedUser.Id, deal.OwnerUserId);
+        Assert.Equal(saljareUser.Id, deal.OwnerUserId);
+        Assert.Equal("1111", deal.SaljId);
 
         var mapping = await env.Context.HubSpotOwnerMappings.SingleAsync(m => m.HubSpotOwnerId == "owner-1");
-        Assert.Equal(mappedUser.Id, mapping.OwnerUserId);
-        Assert.Equal("1111", mapping.OwnerUsername);
-        Assert.Equal("2222@stl.nu", mapping.HubSpotOwnerEmail);
-        Assert.Equal("Alice", mapping.HubSpotFirstName);
-        Assert.Equal("Owner", mapping.HubSpotLastName);
+        Assert.Equal(mappedButDifferentUser.Id, mapping.OwnerUserId);
     }
 
     [Fact]
-    public async Task RunIncrementalSyncAsync_ResolvesByEmailFallback_AndCreatesOwnerMapping()
+    public async Task RunIncrementalSyncAsync_ImportsDealWhenSaljIdExists_WithoutEmailFallback()
     {
         using var env = TestIdentityEnvironment.Create();
         var user = await env.CreateUserAsync("3333", "3333@stl.nu");
@@ -136,7 +225,8 @@ public class HubSpotSyncServiceTests
                             ExternalDealId = "deal-2",
                             OwnerId = "owner-2",
                             OwnerEmail = null,
-                            DealName = "Email fallback",
+                            SaljId = "3333",
+                            DealName = "SaljId only",
                             FulfilledDateUtc = DateTime.UtcNow,
                             LastModifiedUtc = DateTime.UtcNow,
                             Amount = 250m,
@@ -145,18 +235,7 @@ public class HubSpotSyncServiceTests
                         }
                     ]
                 }
-            ],
-            owners: new Dictionary<string, HubSpotOwnerRecord?>
-            {
-                ["owner-2"] = new HubSpotOwnerRecord
-                {
-                    OwnerId = "owner-2",
-                    Email = "3333@stl.nu",
-                    FirstName = "Bob",
-                    LastName = "Fallback",
-                    IsArchived = false
-                }
-            });
+            ]);
 
         var sut = CreateSut(env, client);
 
@@ -168,17 +247,12 @@ public class HubSpotSyncServiceTests
 
         var deal = await env.Context.HubSpotDealImports.SingleAsync(d => d.ExternalDealId == "deal-2");
         Assert.Equal(user.Id, deal.OwnerUserId);
-        Assert.Equal("3333@stl.nu", deal.OwnerEmail);
-
-        var mapping = await env.Context.HubSpotOwnerMappings.SingleAsync(m => m.HubSpotOwnerId == "owner-2");
-        Assert.Equal(user.Id, mapping.OwnerUserId);
-        Assert.Equal("3333", mapping.OwnerUsername);
-        Assert.Equal("Bob", mapping.HubSpotFirstName);
-        Assert.Equal("Fallback", mapping.HubSpotLastName);
+        Assert.Equal("3333", deal.SaljId);
+        Assert.Empty(await env.Context.HubSpotOwnerMappings.ToListAsync());
     }
 
     [Fact]
-    public async Task RunIncrementalSyncAsync_ImportsDealEvenWhenOwnerCannotBeResolved()
+    public async Task RunIncrementalSyncAsync_SkipsDealWhenNoSaljId_AndDoesNotCreateOwnerMapping()
     {
         using var env = TestIdentityEnvironment.Create();
 
@@ -203,35 +277,17 @@ public class HubSpotSyncServiceTests
                         }
                     ]
                 }
-            ],
-            owners: new Dictionary<string, HubSpotOwnerRecord?>
-            {
-                ["owner-3"] = new HubSpotOwnerRecord
-                {
-                    OwnerId = "owner-3",
-                    Email = "9999@stl.nu",
-                    FirstName = "No",
-                    LastName = "Match",
-                    IsArchived = false
-                }
-            });
+            ]);
 
         var sut = CreateSut(env, client);
 
         var result = await sut.RunIncrementalSyncAsync();
 
         Assert.True(result.Succeeded);
-        Assert.Equal(0, result.DealsSkipped);
-        Assert.Equal(1, result.DealsImported);
-
-        var importedDeal = await env.Context.HubSpotDealImports.SingleAsync(d => d.ExternalDealId == "deal-3");
-        Assert.Null(importedDeal.OwnerUserId);
-        Assert.Equal("9999@stl.nu", importedDeal.OwnerEmail);
-        Assert.Equal("owner-3", importedDeal.HubSpotOwnerId);
-
-        var mapping = await env.Context.HubSpotOwnerMappings.SingleAsync(m => m.HubSpotOwnerId == "owner-3");
-        Assert.Null(mapping.OwnerUserId);
-        Assert.Equal("9999@stl.nu", mapping.HubSpotOwnerEmail);
+        Assert.Equal(1, result.DealsSkipped);
+        Assert.Equal(0, result.DealsImported);
+        Assert.Empty(await env.Context.HubSpotDealImports.ToListAsync());
+        Assert.Empty(await env.Context.HubSpotOwnerMappings.ToListAsync());
     }
 
     [Fact]
@@ -255,6 +311,7 @@ public class HubSpotSyncServiceTests
                             ExternalDealId = "deal-redacted",
                             OwnerId = "owner-redacted",
                             OwnerEmail = "7777@stl.nu",
+                            SaljId = "7777",
                             IsFulfilled = true,
                             DealName = "Initially fulfilled",
                             FulfilledDateUtc = fulfilledAt,
@@ -284,18 +341,7 @@ public class HubSpotSyncServiceTests
                         }
                     ]
                 }
-            ],
-            owners: new Dictionary<string, HubSpotOwnerRecord?>
-            {
-                ["owner-redacted"] = new HubSpotOwnerRecord
-                {
-                    OwnerId = "owner-redacted",
-                    Email = "7777@stl.nu",
-                    FirstName = "Redacted",
-                    LastName = "Case",
-                    IsArchived = false
-                }
-            });
+            ]);
 
         var sut = CreateSut(env, client);
 
@@ -332,6 +378,7 @@ public class HubSpotSyncServiceTests
                             ExternalDealId = "deal-9",
                             OwnerId = "owner-9",
                             OwnerEmail = "4444@stl.nu",
+                            SaljId = "4444",
                             DealName = "Original",
                             FulfilledDateUtc = firstSyncTime,
                             LastModifiedUtc = firstSyncTime,
@@ -352,6 +399,7 @@ public class HubSpotSyncServiceTests
                             ExternalDealId = "deal-9",
                             OwnerId = "owner-9",
                             OwnerEmail = "4444@stl.nu",
+                            SaljId = "4444",
                             DealName = "Updated",
                             FulfilledDateUtc = secondSyncTime,
                             LastModifiedUtc = secondSyncTime,
@@ -363,18 +411,7 @@ public class HubSpotSyncServiceTests
                         }
                     ]
                 }
-            ],
-            owners: new Dictionary<string, HubSpotOwnerRecord?>
-            {
-                ["owner-9"] = new HubSpotOwnerRecord
-                {
-                    OwnerId = "owner-9",
-                    Email = "4444@stl.nu",
-                    FirstName = "Update",
-                    LastName = "Case",
-                    IsArchived = false
-                }
-            });
+            ]);
 
         var sut = CreateSut(env, client);
 
@@ -401,7 +438,7 @@ public class HubSpotSyncServiceTests
     }
 
     [Fact]
-    public async Task RunIncrementalSyncAsync_RecalculatesContestEntries_UsesHubSpotOwnerData_AndDeduplicatesOwnerRows()
+    public async Task RunIncrementalSyncAsync_RecalculatesContestEntries_GroupsBySaljId()
     {
         using var env = TestIdentityEnvironment.Create();
         var mappedUser = await env.CreateUserAsync("1234", "1234@stl.nu");
@@ -416,17 +453,6 @@ public class HubSpotSyncServiceTests
         };
 
         env.Context.Contests.Add(contest);
-        env.Context.HubSpotOwnerMappings.Add(new HubSpotOwnerMapping
-        {
-            HubSpotOwnerId = "owner-dup",
-            OwnerUserId = mappedUser.Id,
-            OwnerUsername = mappedUser.UserName,
-            HubSpotOwnerEmail = "owner@stl.nu",
-            HubSpotFirstName = "Alice",
-            HubSpotLastName = "HubSpot",
-            HubSpotPrimaryTeamName = "Team North",
-            LastSeenUtc = DateTime.UtcNow
-        });
         await env.Context.SaveChangesAsync();
 
         var fulfilledAt = DateTime.UtcNow.AddMinutes(-15);
@@ -442,6 +468,7 @@ public class HubSpotSyncServiceTests
                             ExternalDealId = "deal-dedupe-1",
                             OwnerId = "owner-dup",
                             OwnerEmail = "owner@stl.nu",
+                            SaljId = "1234",
                             FulfilledDateUtc = fulfilledAt,
                             LastModifiedUtc = fulfilledAt,
                             PayloadHash = "dedupe-1"
@@ -451,25 +478,14 @@ public class HubSpotSyncServiceTests
                             ExternalDealId = "deal-dedupe-2",
                             OwnerId = "owner-dup",
                             OwnerEmail = "owner.alias@stl.nu",
+                            SaljId = " 1234 ",
                             FulfilledDateUtc = fulfilledAt,
                             LastModifiedUtc = fulfilledAt,
                             PayloadHash = "dedupe-2"
                         }
                     ]
                 }
-            ],
-            owners: new Dictionary<string, HubSpotOwnerRecord?>
-            {
-                ["owner-dup"] = new HubSpotOwnerRecord
-                {
-                    OwnerId = "owner-dup",
-                    Email = "owner@stl.nu",
-                    FirstName = "Alice",
-                    LastName = "HubSpot",
-                    PrimaryTeamName = "Team North",
-                    IsArchived = false
-                }
-            });
+            ]);
 
         var sut = CreateSut(env, client);
 
@@ -483,8 +499,8 @@ public class HubSpotSyncServiceTests
 
         Assert.Single(entries);
         Assert.Equal(2, entries[0].DealsCount);
-        Assert.Equal("Alice HubSpot (Team North)", entries[0].EmployeeNumber);
-        Assert.DoesNotContain("1234", entries[0].EmployeeNumber);
+        Assert.Equal("1234", entries[0].EmployeeNumber);
+        Assert.Equal(mappedUser.Id, entries[0].UserId);
     }
 
     private static HubSpotSyncService CreateSut(TestIdentityEnvironment env, IHubSpotClient client)

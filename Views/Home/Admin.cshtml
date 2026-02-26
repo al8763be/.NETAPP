@@ -6,6 +6,8 @@
 @{
 ViewData["Title"] = "User Administration";
 var usersWithRoles = ViewBag.UsersWithRoles as List<(Microsoft.AspNetCore.Identity.IdentityUser User, bool IsAdmin)>;
+var profilesByEmployeeNumber = ViewBag.UserProfilesByEmployeeNumber as Dictionary<string, WebApplication2.Models.EmployeeProfile> ?? new Dictionary<string, WebApplication2.Models.EmployeeProfile>();
+var regionOptions = ViewBag.RegionOptions as List<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem> ?? new List<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>();
 }
 
 <!DOCTYPE html>
@@ -124,6 +126,22 @@ var usersWithRoles = ViewBag.UsersWithRoles as List<(Microsoft.AspNetCore.Identi
         .skapaanvandare {
             max-width: 700px;
         }
+
+        .admin-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .admin-actions form {
+            margin: 0;
+        }
+
+        .admin-actions .btn {
+            white-space: normal;
+            line-height: 1.2;
+        }
     </style>
 </head>
 <body class="body2">
@@ -154,19 +172,11 @@ var usersWithRoles = ViewBag.UsersWithRoles as List<(Microsoft.AspNetCore.Identi
         </a>
 
         <div class="d-flex align-items-center">
-            @if (User.IsInRole("SuperAdmin"))
-            {
-                <a asp-controller="Social" asp-action="HubSpotOwnerMappings" class="btn btn-outline-light btn-sm me-2">
-                    HubSpot Owners
-                </a>
-            }
             <a asp-controller="Home" asp-action="Profile" class="btn btn-outline-light btn-sm me-2">
                 Min profil
             </a>
             <!-- Klickbar logga ut till höger -->
-            <a href="@Url.Action("Logout", "Home")" class="navbar-brand">
-                <img src="~/images/loggaut.png" width="auto" height="40" alt="Logga ut">
-            </a>
+            <a href="@Url.Action("Logout", "Home")" class="btn btn-danger btn-sm">Sign out</a>
         </div>
     </nav>
 
@@ -186,13 +196,31 @@ var usersWithRoles = ViewBag.UsersWithRoles as List<(Microsoft.AspNetCore.Identi
         <form asp-controller="Home" asp-action="AddUser" method="post" class="skapaanvandare w-100">
             @Html.AntiForgeryToken()
             <div class="row align-items-end">
-                <div class="col-md-4 mb-3">
+                <div class="col-md-3 mb-3">
                     <label for="employeeNumber" class="form-label">Anställningsnummer</label>
-                    <input type="text" class="form-control" id="employeeNumber" name="employeeNumber" required placeholder="T.ex. EMP001">
+                    <input type="text" class="form-control" id="employeeNumber" name="employeeNumber" required pattern="\d{4}" maxlength="4" placeholder="T.ex. 3035">
                 </div>
-                <div class="col-md-8 mb-3 d-flex align-items-end">
+                <div class="col-md-4 mb-3">
+                    <label for="fullName" class="form-label">Namn</label>
+                    <input type="text" class="form-control" id="fullName" name="fullName" required placeholder="T.ex. Jonas al Dakhil">
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label for="region" class="form-label">Region</label>
+                    <select class="form-select" id="region" name="region" required>
+                        <option value="">-- Välj region --</option>
+                        @foreach (var option in regionOptions)
+                        {
+                            <option value="@option.Value">@option.Text</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2 mb-3 d-flex align-items-end">
                     <button type="submit" class="btn btn-success btn-sm" style="height: 38px; width: auto; min-width: 80px;">Skapa</button>
-                    <small class="ms-3 text-muted">Lösenord genereras automatiskt</small>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-12 mb-2">
+                    <small class="text-muted">Lösenord genereras automatiskt.</small>
                 </div>
             </div>
             <div class="row">
@@ -211,7 +239,7 @@ var usersWithRoles = ViewBag.UsersWithRoles as List<(Microsoft.AspNetCore.Identi
     <!-- Search Users -->
     <div class="d-flex justify-content-center my-4">
         <form asp-controller="Home" asp-action="SearchUsers" method="get" class="search-container">
-            <input type="search" name="searchTerm" class="search-input" placeholder="Sök efter användarnamn..." value="@ViewBag.SearchTerm">
+            <input type="search" name="searchTerm" class="search-input" placeholder="Sök användarnamn, namn, region eller roll..." value="@ViewBag.SearchTerm">
             <button type="submit" class="search-btn">
                 <img src="~/images/sok.png" alt="Sök" width="auto" height="25">
             </button>
@@ -227,6 +255,9 @@ var usersWithRoles = ViewBag.UsersWithRoles as List<(Microsoft.AspNetCore.Identi
                 <thead>
                 <tr>
                     <th>Användarnamn</th>
+                    <th>Namn</th>
+                    <th>Region</th>
+                    <th>Role</th>
                     <th>Behörighet</th>
                     <th>Åtgärder</th>
                 </tr>
@@ -237,6 +268,8 @@ var usersWithRoles = ViewBag.UsersWithRoles as List<(Microsoft.AspNetCore.Identi
                 var user = userInfo.User;
                 var isAdmin = userInfo.IsAdmin;
                 var isCurrentUser = user.Id == ViewContext.HttpContext.User.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
+                var employeeNumber = user.UserName?.Trim() ?? string.Empty;
+                var profile = profilesByEmployeeNumber.ContainsKey(employeeNumber) ? profilesByEmployeeNumber[employeeNumber] : null;
 
                 <tr class="@(isAdmin ? "table-warning" : "")">
                     <td>
@@ -246,6 +279,9 @@ var usersWithRoles = ViewBag.UsersWithRoles as List<(Microsoft.AspNetCore.Identi
                         <span class="badge bg-primary">Du</span>
                         }
                     </td>
+                    <td>@(profile?.FullName ?? "-")</td>
+                    <td>@(profile?.Region ?? "-")</td>
+                    <td>@(profile?.Role ?? "-")</td>
                     <td>
                         @if (isAdmin)
                         {
@@ -257,6 +293,7 @@ var usersWithRoles = ViewBag.UsersWithRoles as List<(Microsoft.AspNetCore.Identi
                         }
                     </td>
                     <td>
+                        <div class="admin-actions">
                         @if (!isCurrentUser)
                         {
                             var encodedUserName = JavaScriptEncoder.Default.Encode(user.UserName ?? string.Empty);
@@ -266,7 +303,7 @@ var usersWithRoles = ViewBag.UsersWithRoles as List<(Microsoft.AspNetCore.Identi
                                 ? $"Ta bort admin-behörighet från {encodedUserName}?"
                                 : $"Ge admin-behörighet till {encodedUserName}?";
     
-                            <form asp-controller="Home" asp-action="ToggleAdminRole" method="post" class="d-inline me-2">
+                            <form asp-controller="Home" asp-action="ToggleAdminRole" method="post">
                                 @Html.AntiForgeryToken()
                                 <input type="hidden" name="userId" value="@user.Id" />
                                 <button type="submit"
@@ -280,21 +317,21 @@ var usersWithRoles = ViewBag.UsersWithRoles as List<(Microsoft.AspNetCore.Identi
                             var isCommenter = await UserManager.IsInRoleAsync(user, "Kommenterare");
                             var commenterConfirmText = isCommenter
                                 ? $"Ta bort kommenterarrättighet från {encodedUserName}?"
-                                : $"Ge kommenterarrättighet till {encodedUserName}?";
+                                : $"Låt {encodedUserName} kommentera?";
 
-                            <form asp-controller="Social" asp-action="@(isCommenter ? "TaBortKommenterare" : "GeKommenterare")" method="post" class="d-inline me-2">
+                            <form asp-controller="Social" asp-action="@(isCommenter ? "TaBortKommenterare" : "GeKommenterare")" method="post">
                                 @Html.AntiForgeryToken()
                                 <input type="hidden" name="userId" value="@user.Id" />
                                 <button type="submit" 
                                         class="btn @(isCommenter ? "btn-outline-danger" : "btn-success") btn-sm"
                                         onclick='return confirm("@commenterConfirmText")'>
-                                    @(isCommenter ? "Ta bort kommenterarrättighet" : "Ge kommenterarrättighet")
+                                    @(isCommenter ? "Ta bort kommenterarrättighet" : "Låt kommentera")
                                 </button>
                             </form>
                         }
 
                         @* Lösenordsåterställning *@
-                        <button type="button" class="btn btn-info btn-sm me-2" data-bs-toggle="modal" data-bs-target="#resetModal-@user.Id">
+                        <button type="button" class="btn btn-info btn-sm" data-bs-toggle="modal" data-bs-target="#resetModal-@user.Id">
                             Återställ lösenord
                         </button>
 
@@ -314,6 +351,7 @@ var usersWithRoles = ViewBag.UsersWithRoles as List<(Microsoft.AspNetCore.Identi
                         {
                             <span class="text-muted small">Du kan inte ta bort dig själv</span>
                         }
+                        </div>
                     </td>
 
                 </tr>

@@ -19,18 +19,10 @@
             <img src="~/images/stl-loga.png" width="auto" height="40" alt="STL Logga">
         </a>
         <div class="d-flex align-items-center">
-            @if (User.IsInRole("SuperAdmin"))
-            {
-                <a asp-controller="Social" asp-action="HubSpotOwnerMappings" class="btn btn-outline-primary btn-sm me-2">
-                    HubSpot Owners
-                </a>
-            }
             <a asp-controller="Home" asp-action="Profile" class="btn btn-outline-primary btn-sm me-2">
                 Min profil
             </a>
-            <a href="@Url.Action("Logout", "Home")" class="navbar-brand">
-                <img src="~/images/loggaut.png" width="auto" height="36" alt="Logga ut">
-            </a>
+            <a href="@Url.Action("Logout", "Home")" class="btn btn-danger btn-sm">Sign out</a>
         </div>
     </nav>
 </header>
@@ -100,7 +92,7 @@
                                     {
                                         <span>🥉</span>
                                     }
-                                    @entry.EmployeeNumber
+                                    @(string.IsNullOrWhiteSpace(entry.DisplayName) ? entry.EmployeeNumber : entry.DisplayName)
                                 </td>
                                 <td><span class="badge bg-primary">@entry.DealsCount</span></td>
                             </tr>

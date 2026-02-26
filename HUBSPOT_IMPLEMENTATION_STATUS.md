@@ -123,24 +123,7 @@ Delivered:
 
 ## Deferred (Not in current scope)
 
-- Admin UI for manual owner mapping.
-
-Status update (post-scope follow-up): Implemented.
-
-Delivered:
-- New admin page for HubSpot owner mapping management:
-  - `Views/Social/HubSpotOwnerMappings.cshtml`
-- New actions in `SocialController`:
-  - `GET /Social/HubSpotOwnerMappings`
-  - `POST /Social/UpdateHubSpotOwnerMapping`
-- Quick navigation link added in contest admin:
-  - `Views/Social/AdminContests.cshtml`
-
-Capabilities:
-- filter/search owners (ID, email, name, username)
-- show only unmapped owners
-- map/unmap HubSpot owner to local user
-- conflict prevention when a user is already mapped to another owner
+- Admin UI for manual owner mapping is currently removed.
 
 ## Post-scope delivery: Fulfilled-deals leaderboard source
 

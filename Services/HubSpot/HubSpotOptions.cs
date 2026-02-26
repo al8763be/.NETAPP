@@ -37,7 +37,16 @@ namespace WebApplication2.Services.HubSpot
         public string OwnerIdProperty { get; set; } = "hubspot_owner_id";
 
         [Required]
-        public string FulfilledDateProperty { get; set; } = "closedate";
+        public string SaljIdProperty { get; set; } = "saljid";
+
+        [Required]
+        public string FulfilledDateProperty { get; set; } = "forsaljningsdatum";
+
+        [Required]
+        public string ContactSaljareProperty { get; set; } = "saljare";
+
+        [Required]
+        public string DealFallbackDateProperty { get; set; } = "closedate";
 
         [Required]
         public string LastModifiedProperty { get; set; } = "hs_lastmodifieddate";

@@ -5,6 +5,7 @@ using WebApplication2.Middlewares;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
 using WebApplication2.Services;
+using WebApplication2.Services.Pricing;
 using WebApplication2.Services.HubSpot;
 
 LoadDotEnvIfPresent();
@@ -45,6 +46,7 @@ builder.Services.AddIdentity<IdentityUser, IdentityRole>(options =>
 
 // Register Email Service for question notifications
 builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddScoped<IPurchasePricingService, PurchasePricingService>();
 
 // HubSpot integration services (disabled until configured with secrets)
 builder.Services.AddOptions<HubSpotOptions>()
@@ -60,6 +62,7 @@ builder.Services.AddOptions<HubSpotOptions>()
                 !string.IsNullOrWhiteSpace(options.DealNameProperty) &&
                 !string.IsNullOrWhiteSpace(options.OwnerEmailProperty) &&
                 !string.IsNullOrWhiteSpace(options.OwnerIdProperty) &&
+                !string.IsNullOrWhiteSpace(options.SaljIdProperty) &&
             !string.IsNullOrWhiteSpace(options.FulfilledDateProperty) &&
             !string.IsNullOrWhiteSpace(options.LastModifiedProperty) &&
             !string.IsNullOrWhiteSpace(options.AmountProperty) &&
@@ -340,6 +343,35 @@ using (var scope = app.Services.CreateScope())
         logger.LogError(ex, "Error during admin user initialization");
         throw; // Re-throw to prevent application startup if critical error
     }
+}
+
+if (args.Any(a => a.Equals("--hubspot-rebuild-current-month", StringComparison.OrdinalIgnoreCase)))
+{
+    using var scope = app.Services.CreateScope();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    var syncService = scope.ServiceProvider.GetRequiredService<IHubSpotSyncService>();
+
+    logger.LogInformation("Running one-off HubSpot rebuild for current month only.");
+    var result = await syncService.RebuildCurrentMonthOnlyAsync();
+
+    if (!result.Succeeded)
+    {
+        logger.LogError(
+            "HubSpot current-month rebuild failed. Message: {Message}",
+            result.Message);
+        Environment.ExitCode = 1;
+    }
+    else
+    {
+        logger.LogInformation(
+            "HubSpot current-month rebuild succeeded. Fetched={Fetched}, Imported={Imported}, Updated={Updated}, Skipped={Skipped}",
+            result.DealsFetched,
+            result.DealsImported,
+            result.DealsUpdated,
+            result.DealsSkipped);
+    }
+
+    return;
 }
 
 app.Run();

@@ -94,6 +94,11 @@
             background-color: #218838;
         }
 
+        .calculator-link-wrap {
+            margin-top: 14px;
+            text-align: center;
+        }
+
         .navbar-brand img {
             transition: transform 0.3s ease;
         }
@@ -241,17 +246,12 @@
                 <a asp-controller="Social" asp-action="AdminContests" class="btn btn-success btn-sm me-2">
                     🏆 Contest Admin
                 </a>
-                <a asp-controller="Social" asp-action="HubSpotOwnerMappings" class="btn btn-info btn-sm me-2">
-                    HubSpot Owners
-                </a>
             }
             <a asp-controller="Home" asp-action="Profile" class="btn btn-outline-light btn-sm me-2">
                 Min profil
             </a>
             <!-- Klickbar logga ut till höger -->
-            <a href="@Url.Action("Logout", "Home")" class="navbar-brand">
-                <img src="~/images/loggaut.png" width="auto" height="40" alt="Logga ut">
-            </a>
+            <a href="@Url.Action("Logout", "Home")" class="btn btn-danger btn-sm">Sign out</a>
         </div>
     </nav>
 
@@ -267,6 +267,11 @@
                     <img src="~/images/sok.png" alt="Sök" width="auto" height="25">
                 </button>
             </form>
+            <div class="calculator-link-wrap">
+                <a asp-controller="PricingModule" asp-action="Index" class="btn btn-outline-light btn-sm">
+                    Pris & Provision-kalkyl
+                </a>
+            </div>
         </div>
     </div>
 </header>
@@ -313,12 +318,9 @@
                                                 {
                                                     var entry = entries[i];
                                                     var medal = i == 0 ? "🥇" : i == 1 ? "🥈" : "🥉";
-                                                    var compactLabel = entry.EmployeeNumber ?? string.Empty;
-                                                    var departmentStartIndex = compactLabel.IndexOf(" (", StringComparison.Ordinal);
-                                                    if (departmentStartIndex > 0)
-                                                    {
-                                                        compactLabel = compactLabel.Substring(0, departmentStartIndex);
-                                                    }
+                                                    var compactLabel = string.IsNullOrWhiteSpace(entry.DisplayName)
+                                                        ? (entry.EmployeeNumber ?? string.Empty)
+                                                        : entry.DisplayName;
                                                     <li class="d-flex justify-content-between align-items-center mb-1">
                                                         <span>
                                                             <strong>@medal @compactLabel</strong>

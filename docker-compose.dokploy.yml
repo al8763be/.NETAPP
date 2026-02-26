@@ -1,0 +1,44 @@
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${SQL_SA_PASSWORD:?Set SQL_SA_PASSWORD in Dokploy env vars}"
+      MSSQL_PID: "Developer"
+    volumes:
+      - netapp_sql_data:/var/opt/mssql
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - db
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Development"
+      ASPNETCORE_URLS: "http://0.0.0.0:8080"
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+      Database__AutoMigrateOnStartup: "true"
+      AllowedHosts: "*"
+
+      Security__DefaultAdminUsername: "devsuperadmin"
+      Security__DefaultAdminPassword: "${DEV_SUPERADMIN_PASSWORD:?Set DEV_SUPERADMIN_PASSWORD in Dokploy env vars}"
+      Security__DefaultAdminEmail: "devsuperadmin@localhost"
+
+      ConnectionStrings__DefaultConnection: "Server=db,1433;Database=StlForumDev;User Id=sa;Password=${SQL_SA_PASSWORD};Encrypt=False;TrustServerCertificate=True;MultipleActiveResultSets=True"
+
+      EmailSettings__SmtpHost: ""
+      EmailSettings__SmtpUsername: ""
+      EmailSettings__SmtpPassword: ""
+      EmailSettings__SmtpPort: "587"
+      EmailSettings__FromEmail: "noreply@localhost"
+      EmailSettings__FromName: "STL Forum Dev"
+      EmailSettings__DriftfragaEmail: ""
+      EmailSettings__SaljfragaEmail: ""
+    expose:
+      - "8080"
+    restart: unless-stopped
+
+volumes:
+  netapp_sql_data:

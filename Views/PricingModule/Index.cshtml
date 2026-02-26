@@ -1,0 +1,199 @@
+@{
+    ViewData["Title"] = "Pris & Provision-kalkyl";
+}
+
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - STL Forum</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <style>
+        .page-wrap {
+            background: #f8f9fa;
+            min-height: 100vh;
+            padding: 32px 0;
+        }
+
+        .calculator-card {
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 3px 14px rgba(0, 0, 0, 0.08);
+            border: 1px solid #e9ecef;
+        }
+
+        .section-title {
+            font-weight: 600;
+            color: #095EA9;
+        }
+
+        .result-number {
+            font-size: 1.15rem;
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body>
+<div class="page-wrap">
+    <div class="container">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="mb-0">Pris & Provision-kalkyl</h2>
+            <a asp-controller="Social" asp-action="Index" class="btn btn-outline-secondary btn-sm">Tillbaka till Social</a>
+        </div>
+
+        <div class="calculator-card p-4">
+            <h5 class="section-title mb-3">Grunddata</h5>
+            <div class="row g-3 mb-4">
+                <div class="col-md-3">
+                    <label class="form-label">Ålder</label>
+                    <input id="age" type="number" class="form-control" value="68" min="0" step="1" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Slutpris</label>
+                    <input id="finalPrice" type="number" class="form-control" value="56000" min="0" step="1" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Installation</label>
+                    <input id="installationCost" type="number" class="form-control" value="0" min="0" step="1" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Finansalternativ</label>
+                    <select id="financeOption" class="form-select">
+                        <option>STL-Faktura</option>
+                        <option>Svea-Faktura</option>
+                        <option>72Mån</option>
+                        <option>60Mån</option>
+                        <option>36Mån</option>
+                        <option>24Mån</option>
+                        <option>120MånRänta</option>
+                    </select>
+                </div>
+            </div>
+
+            <h5 class="section-title mb-3">Produkt (antal)</h5>
+            <div class="row g-3 mb-3">
+                <div class="col-md-3"><label class="form-label">Startpaket</label><input data-product="Startpaket" type="number" class="form-control" value="1" min="0" step="1" /></div>
+                <div class="col-md-3"><label class="form-label">Kamera</label><input data-product="Kamera" type="number" class="form-control" value="0" min="0" step="1" /></div>
+                <div class="col-md-3"><label class="form-label">Rökdetektor</label><input data-product="Rökdetektor" type="number" class="form-control" value="0" min="0" step="1" /></div>
+                <div class="col-md-3"><label class="form-label">Magnetkontakt</label><input data-product="Magnetkontakt" type="number" class="form-control" value="0" min="0" step="1" /></div>
+                <div class="col-md-3"><label class="form-label">Manöverpanel</label><input data-product="Manöverpanel" type="number" class="form-control" value="0" min="0" step="1" /></div>
+                <div class="col-md-3"><label class="form-label">Vattendetektor</label><input data-product="Vattendetektor" type="number" class="form-control" value="0" min="0" step="1" /></div>
+                <div class="col-md-3"><label class="form-label">Livekamera</label><input data-product="Livekamera" type="number" class="form-control" value="0" min="0" step="1" /></div>
+                <div class="col-md-3"><label class="form-label">Yale modul</label><input data-product="Yale modul" type="number" class="form-control" value="0" min="0" step="1" /></div>
+                <div class="col-md-3"><label class="form-label">Rörelsedetektor</label><input data-product="Rörelsedetektor" type="number" class="form-control" value="0" min="0" step="1" /></div>
+                <div class="col-md-3"><label class="form-label">Glaskrossdetektor</label><input data-product="Glaskrossdetektor" type="number" class="form-control" value="0" min="0" step="1" /></div>
+            </div>
+
+            <div class="form-check mb-3">
+                <input id="includeFinanceOptionProvision" class="form-check-input" type="checkbox" />
+                <label class="form-check-label" for="includeFinanceOptionProvision">Ta med finansalternativets provision i total provision</label>
+            </div>
+
+            <button id="calculateBtn" type="button" class="btn btn-primary">Beräkna</button>
+            <span id="errorText" class="text-danger ms-3"></span>
+
+            <hr class="my-4" />
+
+            <div id="resultBlock" style="display:none;">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4"><div>Total kostnad</div><div id="totalCost" class="result-number"></div></div>
+                    <div class="col-md-4"><div>Total provision</div><div id="totalProvision" class="result-number"></div></div>
+                    <div class="col-md-4"><div>Tillgängligt avdrag</div><div id="availableDiscount" class="result-number"></div></div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped">
+                        <thead>
+                            <tr>
+                                <th>Produkt</th>
+                                <th>Enhetspris</th>
+                                <th>Antal</th>
+                                <th>Radtotal</th>
+                            </tr>
+                        </thead>
+                        <tbody id="lineItemsBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+(function () {
+    function toNumber(value) {
+        if (value === null || value === undefined || value === "") {
+            return 0;
+        }
+
+        var parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    function formatMoney(value) {
+        return new Intl.NumberFormat('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value);
+    }
+
+    async function calculate() {
+        var errorText = document.getElementById('errorText');
+        errorText.textContent = '';
+
+        var quantities = {};
+        document.querySelectorAll('[data-product]').forEach(function (input) {
+            quantities[input.dataset.product] = toNumber(input.value);
+        });
+
+        var payload = {
+            customerAge: toNumber(document.getElementById('age').value),
+            finalPrice: toNumber(document.getElementById('finalPrice').value),
+            installationCost: toNumber(document.getElementById('installationCost').value),
+            financeOption: document.getElementById('financeOption').value,
+            includeFinanceOptionProvisionInTotal: document.getElementById('includeFinanceOptionProvision').checked,
+            quantities: quantities
+        };
+
+        try {
+            var response = await fetch('/api/pricing/calculate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+
+            var data = await response.json();
+            if (!response.ok) {
+                errorText.textContent = data.error || 'Kunde inte beräkna.';
+                return;
+            }
+
+            document.getElementById('totalCost').textContent = formatMoney(data.totalCost);
+            document.getElementById('totalProvision').textContent = formatMoney(data.totalProvision);
+            document.getElementById('availableDiscount').textContent = formatMoney(data.availableDiscount);
+
+            var tbody = document.getElementById('lineItemsBody');
+            tbody.innerHTML = '';
+            (data.lineItems || []).forEach(function (item) {
+                var tr = document.createElement('tr');
+                tr.innerHTML =
+                    '<td>' + item.product + '</td>' +
+                    '<td>' + formatMoney(item.unitPrice) + '</td>' +
+                    '<td>' + formatMoney(item.quantity) + '</td>' +
+                    '<td>' + formatMoney(item.lineTotal) + '</td>';
+                tbody.appendChild(tr);
+            });
+
+            document.getElementById('resultBlock').style.display = 'block';
+        } catch (error) {
+            errorText.textContent = 'Ett fel uppstod vid beräkning.';
+        }
+    }
+
+    document.getElementById('calculateBtn').addEventListener('click', calculate);
+})();
+</script>
+</body>
+</html>
