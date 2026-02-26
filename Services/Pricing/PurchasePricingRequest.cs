@@ -3,8 +3,8 @@ namespace WebApplication2.Services.Pricing;
 public class PurchasePricingRequest
 {
     public decimal CustomerAge { get; set; }
-    public decimal FinalPrice { get; set; }
-    public decimal InstallationCost { get; set; }
+    public decimal BjudAmount { get; set; }
+    public decimal? InstallationCost { get; set; }
     public string FinanceOption { get; set; } = "STL-Faktura";
     public bool IncludeFinanceOptionProvisionInTotal { get; set; }
 

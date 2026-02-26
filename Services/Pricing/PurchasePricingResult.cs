@@ -6,6 +6,7 @@ public class PurchasePricingResult
     public decimal StartPackageTotal { get; set; }
     public decimal AdditionalProductsSubtotal { get; set; }
     public decimal InternalCostSubtotal { get; set; }
+    public decimal FinalPrice { get; set; }
     public decimal InstallationCost { get; set; }
     public decimal TotalCost { get; set; }
 
@@ -16,9 +17,14 @@ public class PurchasePricingResult
 
     public decimal PriceGapBelowCost { get; set; }
     public decimal PriceGapAboveCost { get; set; }
+    public decimal BjudAmount { get; set; }
+    public decimal BjudThreshold { get; set; }
+    public decimal ExcessBjudAmount { get; set; }
+    public decimal InstallationDifferenceAmount { get; set; }
     public decimal AvailableDiscount { get; set; }
     public decimal AppliedDiscount { get; set; }
     public decimal DiscountProvisionAdjustment { get; set; }
+    public decimal ExcessBjudProvisionAdjustment { get; set; }
     public decimal AboveCostProvisionBonus { get; set; }
 
     public string FinanceOption { get; set; } = string.Empty;

@@ -13,7 +13,6 @@ public sealed class PurchasePricingService : IPurchasePricingService
     private const decimal AdditionalProductsProvisionRate = 0.10m;
     private const decimal InstallationProvisionRate = 0.20m;
     private const decimal DiscountProvisionRate = 0.20m;
-    private const decimal AboveCostProvisionRate = 0.20m;
 
     private static readonly IReadOnlyDictionary<string, decimal> AdditionalProductUnitPrices =
         new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
@@ -81,12 +80,14 @@ public sealed class PurchasePricingService : IPurchasePricingService
             throw new ArgumentOutOfRangeException(nameof(request.CustomerAge), "Age cannot be negative.");
         }
 
-        if (request.FinalPrice < 0)
+        if (request.BjudAmount < 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(request.FinalPrice), "Final price cannot be negative.");
+            throw new ArgumentOutOfRangeException(nameof(request.BjudAmount), "Bjud cannot be negative.");
         }
 
-        if (request.InstallationCost < 0)
+        var installationCost = request.InstallationCost ?? 0m;
+
+        if (installationCost < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(request.InstallationCost), "Installation cost cannot be negative.");
         }
@@ -129,28 +130,41 @@ public sealed class PurchasePricingService : IPurchasePricingService
         // Mirrors the workbook structure (Kostnader M4/N4/P4):
         // M4 = Startpaket + produkter, N4 = produkter, P4 = M4 + N4 + installation
         var internalCostSubtotal = startPackageTotal + additionalProductsSubtotal;
-        var totalCost = internalCostSubtotal + additionalProductsSubtotal + request.InstallationCost;
+        var totalCost = internalCostSubtotal + additionalProductsSubtotal + installationCost;
 
         var provisionBase = BaseProvision;
         var provisionAdditionalProducts = additionalProductsSubtotal * AdditionalProductsProvisionRate;
-        var provisionInstallation = request.InstallationCost * InstallationProvisionRate;
+        var provisionInstallation = installationCost * InstallationProvisionRate;
         var provisionBeforeAdjustments = provisionBase + provisionAdditionalProducts + provisionInstallation;
 
-        var priceGapBelowCost = Math.Max(totalCost - request.FinalPrice, 0m);
-        var priceGapAboveCost = Math.Max(request.FinalPrice - totalCost, 0m);
+        var priceGapBelowCost = request.BjudAmount;
+        var finalPrice = totalCost - priceGapBelowCost;
+        if (finalPrice < 0m)
+        {
+            finalPrice = 0m;
+        }
 
-        var availableDiscount = GetAvailableDiscount(internalCostSubtotal);
-        var appliedDiscount = Math.Min(priceGapBelowCost, availableDiscount);
+        var priceGapAboveCost = 0m;
 
-        // Workbook B16 = -B15*0.2, D11*0.2 added when final price is above total cost.
+        // Workbook semantics:
+        // H12 = threshold for allowed Bjud based on internal cost bracket.
+        // B15 = MIN(Bjud, threshold), C15 = excess above threshold.
+        // B16 = -B15*0.2, C16 = -C15*0.3.
+        var bjudThreshold = GetAvailableDiscount(internalCostSubtotal);
+        var appliedDiscount = Math.Min(priceGapBelowCost, bjudThreshold);
+        var excessBjudAmount = Math.Max(priceGapBelowCost - bjudThreshold, 0m);
+
+        // Workbook B16 = -B15*0.2 and C16 = -C15*0.3.
         var discountProvisionAdjustment = -appliedDiscount * DiscountProvisionRate;
-        var aboveCostProvisionBonus = priceGapAboveCost * AboveCostProvisionRate;
+        var excessBjudProvisionAdjustment = -excessBjudAmount * 0.30m;
+        var aboveCostProvisionBonus = 0m;
 
         var financeOptionProvision = GetFinanceOptionProvision(request.FinanceOption);
 
         var totalProvision =
             provisionBeforeAdjustments +
             discountProvisionAdjustment +
+            excessBjudProvisionAdjustment +
             aboveCostProvisionBonus +
             (request.IncludeFinanceOptionProvisionInTotal ? financeOptionProvision : 0m);
 
@@ -160,7 +174,8 @@ public sealed class PurchasePricingService : IPurchasePricingService
             StartPackageTotal = startPackageTotal,
             AdditionalProductsSubtotal = additionalProductsSubtotal,
             InternalCostSubtotal = internalCostSubtotal,
-            InstallationCost = request.InstallationCost,
+            FinalPrice = finalPrice,
+            InstallationCost = installationCost,
             TotalCost = totalCost,
             ProvisionBase = provisionBase,
             ProvisionAdditionalProducts = provisionAdditionalProducts,
@@ -168,9 +183,14 @@ public sealed class PurchasePricingService : IPurchasePricingService
             ProvisionBeforeAdjustments = provisionBeforeAdjustments,
             PriceGapBelowCost = priceGapBelowCost,
             PriceGapAboveCost = priceGapAboveCost,
-            AvailableDiscount = availableDiscount,
+            BjudAmount = priceGapBelowCost,
+            BjudThreshold = bjudThreshold,
+            ExcessBjudAmount = excessBjudAmount,
+            InstallationDifferenceAmount = priceGapAboveCost,
+            AvailableDiscount = bjudThreshold,
             AppliedDiscount = appliedDiscount,
             DiscountProvisionAdjustment = discountProvisionAdjustment,
+            ExcessBjudProvisionAdjustment = excessBjudProvisionAdjustment,
             AboveCostProvisionBonus = aboveCostProvisionBonus,
             FinanceOption = request.FinanceOption,
             FinanceOptionProvision = financeOptionProvision,

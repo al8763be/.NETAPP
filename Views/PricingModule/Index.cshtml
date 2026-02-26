@@ -51,8 +51,8 @@
                     <input id="age" type="number" class="form-control" value="68" min="0" step="1" />
                 </div>
                 <div class="col-md-3">
-                    <label class="form-label">Slutpris</label>
-                    <input id="finalPrice" type="number" class="form-control" value="56000" min="0" step="1" />
+                    <label class="form-label">Bjud</label>
+                    <input id="bjudInput" type="number" class="form-control" value="0" min="0" step="1" />
                 </div>
                 <div class="col-md-3">
                     <label class="form-label">Installation</label>
@@ -98,9 +98,19 @@
 
             <div id="resultBlock" style="display:none;">
                 <div class="row g-3 mb-3">
+                    <div class="col-md-4"><div>Slutpris</div><div id="calculatedFinalPrice" class="result-number"></div></div>
                     <div class="col-md-4"><div>Total kostnad</div><div id="totalCost" class="result-number"></div></div>
                     <div class="col-md-4"><div>Total provision</div><div id="totalProvision" class="result-number"></div></div>
-                    <div class="col-md-4"><div>Tillgängligt avdrag</div><div id="availableDiscount" class="result-number"></div></div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4"><div>Bjud</div><div id="bjudAmount" class="result-number"></div></div>
+                    <div class="col-md-4"><div>Bjudgräns (nivå)</div><div id="bjudThreshold" class="result-number"></div></div>
+                    <div class="col-md-4"><div>Bjud över gräns</div><div id="excessBjudAmount" class="result-number"></div></div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4"><div>Avdrag provision (20%)</div><div id="discountProvisionAdjustment" class="result-number"></div></div>
+                    <div class="col-md-4"><div>Avgift över gräns (30%)</div><div id="excessBjudProvisionAdjustment" class="result-number"></div></div>
+                    <div class="col-md-4"><div>Installation</div><div id="installationCostResult" class="result-number"></div></div>
                 </div>
 
                 <div class="table-responsive">
@@ -146,10 +156,11 @@
             quantities[input.dataset.product] = toNumber(input.value);
         });
 
+        var installationRaw = document.getElementById('installationCost').value;
         var payload = {
             customerAge: toNumber(document.getElementById('age').value),
-            finalPrice: toNumber(document.getElementById('finalPrice').value),
-            installationCost: toNumber(document.getElementById('installationCost').value),
+            bjudAmount: toNumber(document.getElementById('bjudInput').value),
+            installationCost: installationRaw === '' ? null : toNumber(installationRaw),
             financeOption: document.getElementById('financeOption').value,
             includeFinanceOptionProvisionInTotal: document.getElementById('includeFinanceOptionProvision').checked,
             quantities: quantities
@@ -170,9 +181,15 @@
                 return;
             }
 
+            document.getElementById('calculatedFinalPrice').textContent = formatMoney(data.finalPrice);
             document.getElementById('totalCost').textContent = formatMoney(data.totalCost);
             document.getElementById('totalProvision').textContent = formatMoney(data.totalProvision);
-            document.getElementById('availableDiscount').textContent = formatMoney(data.availableDiscount);
+            document.getElementById('bjudAmount').textContent = formatMoney(data.bjudAmount);
+            document.getElementById('bjudThreshold').textContent = formatMoney(data.bjudThreshold);
+            document.getElementById('excessBjudAmount').textContent = formatMoney(data.excessBjudAmount);
+            document.getElementById('discountProvisionAdjustment').textContent = formatMoney(data.discountProvisionAdjustment);
+            document.getElementById('excessBjudProvisionAdjustment').textContent = formatMoney(data.excessBjudProvisionAdjustment);
+            document.getElementById('installationCostResult').textContent = formatMoney(data.installationCost);
 
             var tbody = document.getElementById('lineItemsBody');
             tbody.innerHTML = '';
