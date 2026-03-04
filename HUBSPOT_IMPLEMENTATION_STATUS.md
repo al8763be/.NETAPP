@@ -1,6 +1,6 @@
 # HubSpot Integration Status (Point of Truth)
 
-Last updated: 2026-02-22
+Last updated: 2026-03-04
 
 ## Scope and Priority
 
@@ -146,3 +146,21 @@ Leaderboard behavior:
 - Full contest leaderboard page (`/Social/ContestLeaderboard/{id}`) is built live from fulfilled HubSpot deals.
 - Display labels are resolved from local mapped user if present, otherwise owner mapping/name/email fallback.
 - Primary HubSpot team name is included in leaderboard labels.
+
+## Post-scope delivery: Profile deal detail expansion prototype
+
+Status: Implemented
+
+Delivered:
+- `/Profile` monthly deal table now includes per-row contact details:
+  - contact first name
+  - contact phone number
+  - contact kundstatus
+- Row-click detail prototype added in `/Profile`:
+  - each deal row toggles a detail section
+  - detail section shows deal id/name and associated line items
+- HubSpot sync and persistence expanded so these values are saved on import:
+  - `HubSpotDealImports.ContactFirstName`
+  - `HubSpotDealImports.ContactPhoneNumber`
+  - `HubSpotDealImports.ContactKundstatus`
+  - `HubSpotDealImports.LineItemsJson`

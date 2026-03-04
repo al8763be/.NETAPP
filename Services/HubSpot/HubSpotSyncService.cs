@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 using WebApplication2.Data;
 using WebApplication2.Models;
 
@@ -315,6 +316,10 @@ namespace WebApplication2.Services.HubSpot
 
             var ownerUser = await _userManager.FindByNameAsync(normalizedSaljId);
             var normalizedOwnerEmail = deal.OwnerEmail?.Trim() ?? string.Empty;
+            var contactFirstName = NormalizeOptionalText(deal.ContactFirstName, 128);
+            var contactPhoneNumber = NormalizeOptionalText(deal.ContactPhoneNumber, 64);
+            var contactKundstatus = NormalizeOptionalText(deal.ContactKundstatus, 128);
+            var lineItemsJson = SerializeLineItems(deal.LineItems);
 
             if (existing == null)
             {
@@ -333,6 +338,10 @@ namespace WebApplication2.Services.HubSpot
                     DealStage = deal.DealStage,
                     HubSpotLastModifiedUtc = deal.LastModifiedUtc,
                     PayloadHash = deal.PayloadHash,
+                    ContactFirstName = contactFirstName,
+                    ContactPhoneNumber = contactPhoneNumber,
+                    ContactKundstatus = contactKundstatus,
+                    LineItemsJson = lineItemsJson,
                     FirstSeenUtc = DateTime.UtcNow,
                     LastSeenUtc = DateTime.UtcNow
                 });
@@ -353,6 +362,10 @@ namespace WebApplication2.Services.HubSpot
             existing.DealStage = deal.DealStage;
             existing.HubSpotLastModifiedUtc = deal.LastModifiedUtc;
             existing.PayloadHash = deal.PayloadHash;
+            existing.ContactFirstName = contactFirstName;
+            existing.ContactPhoneNumber = contactPhoneNumber;
+            existing.ContactKundstatus = contactKundstatus;
+            existing.LineItemsJson = lineItemsJson;
             existing.LastSeenUtc = DateTime.UtcNow;
 
             await _context.SaveChangesAsync(cancellationToken);
@@ -433,6 +446,59 @@ namespace WebApplication2.Services.HubSpot
             }
 
             return null;
+        }
+
+        private static string? NormalizeOptionalText(string? value, int maxLength)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            var trimmed = value.Trim();
+            if (trimmed.Length <= maxLength)
+            {
+                return trimmed;
+            }
+
+            return trimmed[..maxLength];
+        }
+
+        private static string? SerializeLineItems(IReadOnlyCollection<HubSpotDealLineItemRecord> lineItems)
+        {
+            if (lineItems == null || lineItems.Count == 0)
+            {
+                return null;
+            }
+
+            var normalized = lineItems
+                .Select(item => new StoredDealLineItem
+                {
+                    LineItemId = NormalizeOptionalText(item.LineItemId, 128),
+                    Name = NormalizeOptionalText(item.Name, 512),
+                    Quantity = item.Quantity,
+                    Price = item.Price,
+                    Amount = item.Amount,
+                    Sku = NormalizeOptionalText(item.Sku, 128)
+                })
+                .ToList();
+
+            if (normalized.Count == 0)
+            {
+                return null;
+            }
+
+            return JsonSerializer.Serialize(normalized);
+        }
+
+        private sealed class StoredDealLineItem
+        {
+            public string? LineItemId { get; set; }
+            public string? Name { get; set; }
+            public decimal? Quantity { get; set; }
+            public decimal? Price { get; set; }
+            public decimal? Amount { get; set; }
+            public string? Sku { get; set; }
         }
 
         private async Task ClearHubSpotImportDataAsync(CancellationToken cancellationToken)

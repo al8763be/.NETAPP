@@ -20,6 +20,10 @@ namespace WebApplication2.Models
         public string? DealStage { get; set; }
         public DateTime? HubSpotLastModifiedUtc { get; set; }
         public string? PayloadHash { get; set; }
+        public string? ContactFirstName { get; set; }
+        public string? ContactPhoneNumber { get; set; }
+        public string? ContactKundstatus { get; set; }
+        public string? LineItemsJson { get; set; }
         public DateTime FirstSeenUtc { get; set; }
         public DateTime LastSeenUtc { get; set; }
     }

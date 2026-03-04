@@ -46,6 +46,15 @@ namespace WebApplication2.Services.HubSpot
         public string ContactSaljareProperty { get; set; } = "saljare";
 
         [Required]
+        public string ContactFirstNameProperty { get; set; } = "firstname";
+
+        [Required]
+        public string ContactPhoneProperty { get; set; } = "phone";
+
+        [Required]
+        public string ContactKundstatusProperty { get; set; } = "kundstatus";
+
+        [Required]
         public string DealFallbackDateProperty { get; set; } = "closedate";
 
         [Required]
@@ -59,6 +68,21 @@ namespace WebApplication2.Services.HubSpot
 
         [Required]
         public string ProvisionProperty { get; set; } = "saljarprovision";
+
+        [Required]
+        public string LineItemNameProperty { get; set; } = "name";
+
+        [Required]
+        public string LineItemQuantityProperty { get; set; } = "quantity";
+
+        [Required]
+        public string LineItemPriceProperty { get; set; } = "price";
+
+        [Required]
+        public string LineItemAmountProperty { get; set; } = "amount";
+
+        [Required]
+        public string LineItemSkuProperty { get; set; } = "hs_sku";
 
         [Range(1, 100)]
         public int PageSize { get; set; } = 100;

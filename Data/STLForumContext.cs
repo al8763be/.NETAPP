@@ -129,6 +129,10 @@ namespace WebApplication2.Data
                 entity.Property(d => d.CurrencyCode).HasMaxLength(16);
                 entity.Property(d => d.DealStage).HasMaxLength(128);
                 entity.Property(d => d.PayloadHash).HasMaxLength(128);
+                entity.Property(d => d.ContactFirstName).HasMaxLength(128);
+                entity.Property(d => d.ContactPhoneNumber).HasMaxLength(64);
+                entity.Property(d => d.ContactKundstatus).HasMaxLength(128);
+                entity.Property(d => d.LineItemsJson);
 
                 entity.HasIndex(d => d.ExternalDealId).IsUnique();
                 entity.HasIndex(d => new { d.OwnerUserId, d.FulfilledDateUtc });

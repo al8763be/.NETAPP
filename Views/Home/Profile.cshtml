@@ -12,6 +12,14 @@
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css"/>
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true"/>
     <style>
+        :root {
+            --profile-accent: #0d6efd;
+            --profile-accent-soft: #eaf3ff;
+            --profile-heading: #123b68;
+            --money-color: #0f7a45;
+            --provision-color: #7a2ff2;
+        }
+
         .body2 {
             background-color: #f8f9fa;
             margin: 0;
@@ -50,6 +58,77 @@
 
         .navbar-brand:hover img {
             transform: scale(1.1);
+        }
+
+        .deal-summary-row {
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        .deal-summary-row:hover {
+            background-color: #eef4ff !important;
+        }
+
+        .deal-summary-row[aria-expanded="true"] {
+            background-color: var(--profile-accent-soft) !important;
+        }
+
+        .deal-table {
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .deal-table thead th {
+            background-color: #ddeeff;
+            color: var(--profile-heading);
+            font-weight: 700;
+            border-bottom: 0;
+        }
+
+        .amount-cell {
+            color: var(--money-color);
+            font-weight: 700;
+        }
+
+        .provision-cell {
+            color: var(--provision-color);
+            font-weight: 700;
+        }
+
+        .status-pill {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            font-weight: 700;
+            line-height: 1.1;
+            background: #edf1f7;
+            color: #344052;
+        }
+
+        .status-pill.status-klar {
+            background: #dff5e8;
+            color: #0f7a45;
+        }
+
+        .status-pill.status-ombokning {
+            background: #ffeccf;
+            color: #9a5d00;
+        }
+
+        .status-pill.status-bokad {
+            background: #dcedff;
+            color: #1f5ca8;
+        }
+
+        .status-pill.status-nyregistrerad {
+            background: #ede4ff;
+            color: #6441c4;
+        }
+
+        .deal-detail-card {
+            background: linear-gradient(180deg, #ffffff 0%, #f5f9ff 100%);
+            border-color: #d9e9ff !important;
         }
     </style>
 </head>
@@ -103,25 +182,124 @@
                         @if (Model.CurrentMonthDeals.Any())
                         {
                             <div class="table-responsive">
-                                <table class="table table-sm table-striped">
+                                <table class="table table-sm align-middle deal-table">
                                     <thead>
                                         <tr>
                                             <th>Datum</th>
-                                            <th>Affär</th>
                                             <th>Belopp</th>
                                             <th>Provision</th>
-                                            <th>Valuta</th>
+                                            <th>Förnamn</th>
+                                            <th>Telefon</th>
+                                            <th>Kundstatus</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                    @foreach (var deal in Model.CurrentMonthDeals)
+                                    @for (var i = 0; i < Model.CurrentMonthDeals.Count; i++)
                                     {
-                                        <tr>
-                                            <td>@deal.FulfilledDateUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
-                                            <td>@(string.IsNullOrWhiteSpace(deal.DealName) ? deal.ExternalDealId : deal.DealName)</td>
-                                            <td>@(deal.Amount?.ToString("N2") ?? "-")</td>
-                                            <td>@(deal.SellerProvision?.ToString("N2") ?? "-")</td>
-                                            <td>@(string.IsNullOrWhiteSpace(deal.CurrencyCode) ? "-" : deal.CurrencyCode)</td>
+                                        var deal = Model.CurrentMonthDeals[i];
+                                        var detailRowId = $"deal-detail-{i}";
+                                        var merSalj = deal.LineItems
+                                            .Where(li => string.IsNullOrWhiteSpace(li.Name) || !li.Name.Contains("Startpaket", StringComparison.OrdinalIgnoreCase))
+                                            .Sum(li => li.Amount ?? 0m);
+                                        var statusRaw = deal.ContactKundstatus?.Trim() ?? string.Empty;
+                                        var normalizedStatus = statusRaw.ToLowerInvariant();
+                                        var statusClass = normalizedStatus switch
+                                        {
+                                            "klar kund" => "status-klar",
+                                            "ombokning" => "status-ombokning",
+                                            "bokad" => "status-bokad",
+                                            "nyregistrerad" => "status-nyregistrerad",
+                                            _ => string.Empty
+                                        };
+                                        <tr class="deal-summary-row"
+                                            data-detail-id="@detailRowId"
+                                            role="button"
+                                            tabindex="0"
+                                            aria-expanded="false">
+                                            <td>@deal.FulfilledDateUtc.ToLocalTime().ToString("yyyy-MM-dd")</td>
+                                            <td class="amount-cell">@(deal.Amount?.ToString("N2") ?? "-")</td>
+                                            <td class="provision-cell">@(deal.SellerProvision?.ToString("N2") ?? "-")</td>
+                                            <td>@(string.IsNullOrWhiteSpace(deal.ContactFirstName) ? "-" : deal.ContactFirstName)</td>
+                                            <td>@(string.IsNullOrWhiteSpace(deal.ContactPhoneNumber) ? "-" : deal.ContactPhoneNumber)</td>
+                                            <td>
+                                                @if (string.IsNullOrWhiteSpace(statusRaw))
+                                                {
+                                                    <span class="status-pill">-</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="status-pill @statusClass">@statusRaw</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                        <tr id="@detailRowId" class="d-none">
+                                            <td colspan="6">
+                                                <div class="p-3 border rounded deal-detail-card">
+                                                    <div class="row g-3">
+                                                        <div class="col-md-6">
+                                                            <div class="text-muted small">Affärs-ID</div>
+                                                            <div>@deal.ExternalDealId</div>
+                                                        </div>
+                                                        <div class="col-md-6">
+                                                            <div class="text-muted small">Affärsnamn</div>
+                                                            <div>@(string.IsNullOrWhiteSpace(deal.DealName) ? "-" : deal.DealName)</div>
+                                                        </div>
+                                                        <div class="col-md-3">
+                                                            <div class="text-muted small">Belopp</div>
+                                                            <div class="amount-cell">@(deal.Amount?.ToString("N2") ?? "-")</div>
+                                                        </div>
+                                                        <div class="col-md-3">
+                                                            <div class="text-muted small">Mersälj</div>
+                                                            <div class="amount-cell">@(deal.LineItems.Any() ? merSalj.ToString("N2") : "-")</div>
+                                                        </div>
+                                                        <div class="col-md-3">
+                                                            <div class="text-muted small">Provision</div>
+                                                            <div class="provision-cell">@(deal.SellerProvision?.ToString("N2") ?? "-")</div>
+                                                        </div>
+                                                        <div class="col-md-3">
+                                                            <div class="text-muted small">Valuta</div>
+                                                            <div>@(string.IsNullOrWhiteSpace(deal.CurrencyCode) ? "-" : deal.CurrencyCode)</div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="mt-3">
+                                                        <div class="text-muted small mb-2">Produkter</div>
+                                                        @if (deal.LineItems.Any())
+                                                        {
+                                                            <ul class="mb-0">
+                                                                @foreach (var lineItem in deal.LineItems)
+                                                                {
+                                                                    <li>
+                                                                        @if (!string.IsNullOrWhiteSpace(lineItem.Name))
+                                                                        {
+                                                                            @lineItem.Name
+                                                                        }
+                                                                        else if (!string.IsNullOrWhiteSpace(lineItem.Sku))
+                                                                        {
+                                                                            @lineItem.Sku
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            @lineItem.LineItemId
+                                                                        }
+                                                                        @if (lineItem.Quantity.HasValue)
+                                                                        {
+                                                                            <text> x @lineItem.Quantity.Value.ToString("0.##")</text>
+                                                                        }
+                                                                        @if (lineItem.Amount.HasValue)
+                                                                        {
+                                                                            <text> - @lineItem.Amount.Value.ToString("N2")</text>
+                                                                        }
+                                                                    </li>
+                                                                }
+                                                            </ul>
+                                                        }
+                                                        else
+                                                        {
+                                                            <div class="text-muted">Inga line items sparade för den här affären än.</div>
+                                                        }
+                                                    </div>
+                                                </div>
+                                            </td>
                                         </tr>
                                     }
                                     </tbody>
@@ -144,5 +322,44 @@
 </main>
 
 <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const rows = document.querySelectorAll(".deal-summary-row");
+        for (const row of rows) {
+            const toggleDetails = function () {
+                const detailId = row.getAttribute("data-detail-id");
+                if (!detailId) {
+                    return;
+                }
+
+                const detailRow = document.getElementById(detailId);
+                if (!detailRow) {
+                    return;
+                }
+
+                const isExpanded = row.getAttribute("aria-expanded") === "true";
+                row.setAttribute("aria-expanded", isExpanded ? "false" : "true");
+                detailRow.classList.toggle("d-none");
+            };
+
+            row.addEventListener("click", function (event) {
+                if (event.target.closest("a, button, input, select, textarea")) {
+                    return;
+                }
+
+                toggleDetails();
+            });
+
+            row.addEventListener("keydown", function (event) {
+                if (event.key !== "Enter" && event.key !== " ") {
+                    return;
+                }
+
+                event.preventDefault();
+                toggleDetails();
+            });
+        }
+    });
+</script>
 </body>
 </html>

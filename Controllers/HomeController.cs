@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using System.Text.RegularExpressions;
+using System.Text.Json;
 
 namespace WebApplication2.Controllers
 {
@@ -521,13 +522,16 @@ namespace WebApplication2.Controllers
             var monthStartUtc = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
             var monthEndUtc = monthStartUtc.AddMonths(1);
 
-            var currentMonthDeals = await _context.HubSpotDealImports
+            var currentMonthDealRows = await _context.HubSpotDealImports
                 .AsNoTracking()
                 .Where(d =>
                     d.SaljId == username &&
                     d.FulfilledDateUtc >= monthStartUtc &&
                     d.FulfilledDateUtc < monthEndUtc)
                 .OrderByDescending(d => d.FulfilledDateUtc)
+                .ToListAsync();
+
+            var currentMonthDeals = currentMonthDealRows
                 .Select(d => new UserHubSpotDealViewModel
                 {
                     ExternalDealId = d.ExternalDealId,
@@ -535,9 +539,13 @@ namespace WebApplication2.Controllers
                     FulfilledDateUtc = d.FulfilledDateUtc,
                     Amount = d.Amount,
                     SellerProvision = d.SellerProvision,
-                    CurrencyCode = d.CurrencyCode ?? string.Empty
+                    CurrencyCode = d.CurrencyCode ?? string.Empty,
+                    ContactFirstName = d.ContactFirstName ?? string.Empty,
+                    ContactPhoneNumber = d.ContactPhoneNumber ?? string.Empty,
+                    ContactKundstatus = d.ContactKundstatus ?? string.Empty,
+                    LineItems = ParseLineItemsJson(d.LineItemsJson)
                 })
-                .ToListAsync();
+                .ToList();
 
             var model = new UserProfileViewModel
             {
@@ -558,6 +566,49 @@ namespace WebApplication2.Controllers
             };
 
             return View(model);
+        }
+
+        private static List<UserHubSpotDealLineItemViewModel> ParseLineItemsJson(string? lineItemsJson)
+        {
+            if (string.IsNullOrWhiteSpace(lineItemsJson))
+            {
+                return new List<UserHubSpotDealLineItemViewModel>();
+            }
+
+            try
+            {
+                var storedLineItems = JsonSerializer.Deserialize<List<StoredDealLineItem>>(lineItemsJson);
+                if (storedLineItems == null || storedLineItems.Count == 0)
+                {
+                    return new List<UserHubSpotDealLineItemViewModel>();
+                }
+
+                return storedLineItems
+                    .Select(item => new UserHubSpotDealLineItemViewModel
+                    {
+                        LineItemId = item.LineItemId ?? string.Empty,
+                        Name = item.Name ?? string.Empty,
+                        Quantity = item.Quantity,
+                        Price = item.Price,
+                        Amount = item.Amount,
+                        Sku = item.Sku ?? string.Empty
+                    })
+                    .ToList();
+            }
+            catch (JsonException)
+            {
+                return new List<UserHubSpotDealLineItemViewModel>();
+            }
+        }
+
+        private sealed class StoredDealLineItem
+        {
+            public string? LineItemId { get; set; }
+            public string? Name { get; set; }
+            public decimal? Quantity { get; set; }
+            public decimal? Price { get; set; }
+            public decimal? Amount { get; set; }
+            public string? Sku { get; set; }
         }
 
         public async Task<IActionResult> Logout()

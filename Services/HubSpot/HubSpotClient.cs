@@ -21,6 +21,9 @@ namespace WebApplication2.Services.HubSpot
         {
             public string? Saljare { get; set; }
             public DateTime? SaleDateUtc { get; set; }
+            public string? FirstName { get; set; }
+            public string? PhoneNumber { get; set; }
+            public string? Kundstatus { get; set; }
         }
 
         private sealed class ContactSearchRow
@@ -28,12 +31,25 @@ namespace WebApplication2.Services.HubSpot
             public string ContactId { get; set; } = string.Empty;
             public string? Saljare { get; set; }
             public DateTime? SaleDateUtc { get; set; }
+            public string? FirstName { get; set; }
+            public string? PhoneNumber { get; set; }
+            public string? Kundstatus { get; set; }
         }
 
         private sealed class ContactSearchPageResult
         {
             public List<ContactSearchRow> Contacts { get; set; } = new();
             public string? NextCursor { get; set; }
+        }
+
+        private sealed class LineItemFieldValues
+        {
+            public string LineItemId { get; set; } = string.Empty;
+            public string? Name { get; set; }
+            public decimal? Quantity { get; set; }
+            public decimal? Price { get; set; }
+            public decimal? Amount { get; set; }
+            public string? Sku { get; set; }
         }
 
         public HubSpotClient(HttpClient httpClient, IOptions<HubSpotOptions> options, ILogger<HubSpotClient> logger)
@@ -64,7 +80,7 @@ namespace WebApplication2.Services.HubSpot
                 ["limit"] = Math.Clamp(pageSize, 1, 100).ToString(),
                 ["archived"] = "false",
                 ["properties"] = BuildPropertiesQuery(),
-                ["associations"] = "contacts"
+                ["associations"] = "contacts,line_items"
             };
 
             if (!string.IsNullOrWhiteSpace(afterCursor))
@@ -93,6 +109,7 @@ namespace WebApplication2.Services.HubSpot
             var fulfilledStatuses = await GetResolvedFulfilledStatusesAsync(cancellationToken);
             var result = ParseDealsPage(payload, modifiedSinceUtc, fulfilledStatuses);
             await EnrichDealsWithContactDataAsync(result.Deals, cancellationToken);
+            await EnrichDealsWithLineItemsAsync(result.Deals, cancellationToken);
             _logger.LogInformation(
                 "HubSpot deals page parsed. Deals: {Count}, NextCursor: {NextCursor}",
                 result.Deals.Count,
@@ -188,12 +205,33 @@ namespace WebApplication2.Services.HubSpot
                         deal.FulfilledDateUtc = contact.SaleDateUtc.Value;
                     }
 
-                    if (!string.IsNullOrWhiteSpace(deal.SaljId) && deal.FulfilledDateUtc.HasValue)
+                    if (string.IsNullOrWhiteSpace(deal.ContactFirstName) && !string.IsNullOrWhiteSpace(contact.FirstName))
+                    {
+                        deal.ContactFirstName = contact.FirstName.Trim();
+                    }
+
+                    if (string.IsNullOrWhiteSpace(deal.ContactPhoneNumber) && !string.IsNullOrWhiteSpace(contact.PhoneNumber))
+                    {
+                        deal.ContactPhoneNumber = contact.PhoneNumber.Trim();
+                    }
+
+                    if (string.IsNullOrWhiteSpace(deal.ContactKundstatus) && !string.IsNullOrWhiteSpace(contact.Kundstatus))
+                    {
+                        deal.ContactKundstatus = contact.Kundstatus.Trim();
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(deal.SaljId) &&
+                        deal.FulfilledDateUtc.HasValue &&
+                        !string.IsNullOrWhiteSpace(deal.ContactFirstName) &&
+                        !string.IsNullOrWhiteSpace(deal.ContactPhoneNumber) &&
+                        !string.IsNullOrWhiteSpace(deal.ContactKundstatus))
                     {
                         break;
                     }
                 }
             }
+
+            await EnrichDealsWithLineItemsAsync(deals, cancellationToken);
 
             var result = new HubSpotDealsPageResult
             {
@@ -456,6 +494,7 @@ namespace WebApplication2.Services.HubSpot
                 OwnerId = ownerId,
                 SaljId = saljId,
                 ContactIds = ReadAssociatedContactIds(item),
+                LineItemIds = ReadAssociatedLineItemIds(item),
                 IsFulfilled = isFulfilled,
                 FulfilledDateUtc = fulfilledDateUtc,
                 LastModifiedUtc = lastModifiedUtc,
@@ -544,7 +583,26 @@ namespace WebApplication2.Services.HubSpot
                         deal.FulfilledDateUtc = contactValues.SaleDateUtc.Value;
                     }
 
-                    if (!string.IsNullOrWhiteSpace(deal.SaljId) && deal.FulfilledDateUtc.HasValue)
+                    if (string.IsNullOrWhiteSpace(deal.ContactFirstName) && !string.IsNullOrWhiteSpace(contactValues.FirstName))
+                    {
+                        deal.ContactFirstName = contactValues.FirstName.Trim();
+                    }
+
+                    if (string.IsNullOrWhiteSpace(deal.ContactPhoneNumber) && !string.IsNullOrWhiteSpace(contactValues.PhoneNumber))
+                    {
+                        deal.ContactPhoneNumber = contactValues.PhoneNumber.Trim();
+                    }
+
+                    if (string.IsNullOrWhiteSpace(deal.ContactKundstatus) && !string.IsNullOrWhiteSpace(contactValues.Kundstatus))
+                    {
+                        deal.ContactKundstatus = contactValues.Kundstatus.Trim();
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(deal.SaljId) &&
+                        deal.FulfilledDateUtc.HasValue &&
+                        !string.IsNullOrWhiteSpace(deal.ContactFirstName) &&
+                        !string.IsNullOrWhiteSpace(deal.ContactPhoneNumber) &&
+                        !string.IsNullOrWhiteSpace(deal.ContactKundstatus))
                     {
                         break;
                     }
@@ -593,6 +651,212 @@ namespace WebApplication2.Services.HubSpot
                 .ToList();
         }
 
+        private async Task EnrichDealsWithLineItemsAsync(
+            List<HubSpotDealRecord> deals,
+            CancellationToken cancellationToken)
+        {
+            if (deals.Count == 0 || string.IsNullOrWhiteSpace(_options.AccessToken))
+            {
+                return;
+            }
+
+            var lineItemIdsByDealId = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            foreach (var deal in deals)
+            {
+                if (string.IsNullOrWhiteSpace(deal.ExternalDealId))
+                {
+                    continue;
+                }
+
+                var lineItemIds = deal.LineItemIds
+                    .Where(id => !string.IsNullOrWhiteSpace(id))
+                    .Select(id => id.Trim())
+                    .Distinct(StringComparer.Ordinal)
+                    .ToList();
+
+                if (lineItemIds.Count == 0)
+                {
+                    lineItemIds = await GetAssociatedLineItemIdsForDealAsync(deal.ExternalDealId, cancellationToken);
+                }
+
+                if (lineItemIds.Count == 0)
+                {
+                    continue;
+                }
+
+                lineItemIdsByDealId[deal.ExternalDealId] = lineItemIds;
+                deal.LineItemIds = lineItemIds;
+            }
+
+            if (lineItemIdsByDealId.Count == 0)
+            {
+                return;
+            }
+
+            var uniqueLineItemIds = lineItemIdsByDealId.Values
+                .SelectMany(ids => ids)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+            var lineItemsById = await GetLineItemValuesByIdsAsync(uniqueLineItemIds, cancellationToken);
+            if (lineItemsById.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var deal in deals)
+            {
+                if (!lineItemIdsByDealId.TryGetValue(deal.ExternalDealId, out var lineItemIds))
+                {
+                    continue;
+                }
+
+                var lineItems = new List<HubSpotDealLineItemRecord>();
+                foreach (var lineItemId in lineItemIds)
+                {
+                    if (!lineItemsById.TryGetValue(lineItemId, out var lineItem))
+                    {
+                        continue;
+                    }
+
+                    lineItems.Add(new HubSpotDealLineItemRecord
+                    {
+                        LineItemId = lineItem.LineItemId,
+                        Name = lineItem.Name,
+                        Quantity = lineItem.Quantity,
+                        Price = lineItem.Price,
+                        Amount = lineItem.Amount,
+                        Sku = lineItem.Sku
+                    });
+                }
+
+                deal.LineItems = lineItems;
+            }
+        }
+
+        private async Task<List<string>> GetAssociatedLineItemIdsForDealAsync(
+            string dealId,
+            CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(dealId))
+            {
+                return new List<string>();
+            }
+
+            var path = $"/crm/v3/objects/deals/{Uri.EscapeDataString(dealId)}/associations/line_items?limit=100";
+            using var request = new HttpRequestMessage(HttpMethod.Get, path);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.AccessToken);
+
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning(
+                    "HubSpot line-item association lookup failed for deal {DealId} with status code {StatusCode}",
+                    dealId,
+                    (int)response.StatusCode);
+                return new List<string>();
+            }
+
+            var payload = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var document = JsonDocument.Parse(payload);
+            var root = document.RootElement;
+
+            if (!root.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array)
+            {
+                return new List<string>();
+            }
+
+            return results
+                .EnumerateArray()
+                .Select(result => result.TryGetProperty("id", out var idElement) ? idElement.GetString() : null)
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id!.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+        }
+
+        private async Task<Dictionary<string, LineItemFieldValues>> GetLineItemValuesByIdsAsync(
+            IReadOnlyCollection<string> lineItemIds,
+            CancellationToken cancellationToken)
+        {
+            if (lineItemIds.Count == 0)
+            {
+                return new Dictionary<string, LineItemFieldValues>(StringComparer.Ordinal);
+            }
+
+            var requestBody = new Dictionary<string, object?>
+            {
+                ["properties"] = new[]
+                {
+                    _options.LineItemNameProperty,
+                    _options.LineItemQuantityProperty,
+                    _options.LineItemPriceProperty,
+                    _options.LineItemAmountProperty,
+                    _options.LineItemSkuProperty
+                }
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray(),
+                ["inputs"] = lineItemIds.Select(id => new Dictionary<string, string> { ["id"] = id }).ToArray()
+            };
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/crm/v3/objects/line_items/batch/read")
+            {
+                Content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json")
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.AccessToken);
+
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning(
+                    "HubSpot line-item batch read failed with status code {StatusCode}",
+                    (int)response.StatusCode);
+                return new Dictionary<string, LineItemFieldValues>(StringComparer.Ordinal);
+            }
+
+            var payload = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var document = JsonDocument.Parse(payload);
+            var root = document.RootElement;
+            var result = new Dictionary<string, LineItemFieldValues>(StringComparer.Ordinal);
+
+            if (!root.TryGetProperty("results", out var rows) || rows.ValueKind != JsonValueKind.Array)
+            {
+                return result;
+            }
+
+            foreach (var row in rows.EnumerateArray())
+            {
+                if (!row.TryGetProperty("id", out var idElement) || idElement.ValueKind != JsonValueKind.String)
+                {
+                    continue;
+                }
+
+                var lineItemId = idElement.GetString();
+                if (string.IsNullOrWhiteSpace(lineItemId))
+                {
+                    continue;
+                }
+
+                if (!row.TryGetProperty("properties", out var properties) || properties.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                result[lineItemId] = new LineItemFieldValues
+                {
+                    LineItemId = lineItemId,
+                    Name = ReadPropertyString(properties, _options.LineItemNameProperty),
+                    Quantity = ParseNullableDecimal(ReadPropertyString(properties, _options.LineItemQuantityProperty)),
+                    Price = ParseNullableDecimal(ReadPropertyString(properties, _options.LineItemPriceProperty)),
+                    Amount = ParseNullableDecimal(ReadPropertyString(properties, _options.LineItemAmountProperty)),
+                    Sku = ReadPropertyString(properties, _options.LineItemSkuProperty)
+                };
+            }
+
+            return result;
+        }
+
         private async Task<Dictionary<string, ContactFieldValues>> GetContactValuesByIdsAsync(
             IReadOnlyCollection<string> contactIds,
             CancellationToken cancellationToken)
@@ -607,7 +871,10 @@ namespace WebApplication2.Services.HubSpot
                 ["properties"] = new[]
                 {
                     _options.ContactSaljareProperty,
-                    _options.FulfilledDateProperty
+                    _options.FulfilledDateProperty,
+                    _options.ContactFirstNameProperty,
+                    _options.ContactPhoneProperty,
+                    _options.ContactKundstatusProperty
                 }
                 .Where(p => !string.IsNullOrWhiteSpace(p))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -661,11 +928,17 @@ namespace WebApplication2.Services.HubSpot
                 var saljare = ReadPropertyString(properties, _options.ContactSaljareProperty);
                 var saleDateRaw = ReadPropertyString(properties, _options.FulfilledDateProperty);
                 var saleDate = ParseHubSpotDate(saleDateRaw);
+                var firstName = ReadPropertyString(properties, _options.ContactFirstNameProperty);
+                var phoneNumber = ReadPropertyString(properties, _options.ContactPhoneProperty);
+                var kundstatus = ReadPropertyString(properties, _options.ContactKundstatusProperty);
 
                 result[contactId] = new ContactFieldValues
                 {
                     Saljare = saljare,
-                    SaleDateUtc = saleDate
+                    SaleDateUtc = saleDate,
+                    FirstName = firstName,
+                    PhoneNumber = phoneNumber,
+                    Kundstatus = kundstatus
                 };
             }
 
@@ -698,7 +971,10 @@ namespace WebApplication2.Services.HubSpot
                 ["properties"] = new[]
                 {
                     _options.ContactSaljareProperty,
-                    _options.FulfilledDateProperty
+                    _options.FulfilledDateProperty,
+                    _options.ContactFirstNameProperty,
+                    _options.ContactPhoneProperty,
+                    _options.ContactKundstatusProperty
                 }
                 .Where(p => !string.IsNullOrWhiteSpace(p))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -766,12 +1042,18 @@ namespace WebApplication2.Services.HubSpot
 
                 var saljare = ReadPropertyString(properties, _options.ContactSaljareProperty);
                 var saleDate = ParseHubSpotDate(ReadPropertyString(properties, _options.FulfilledDateProperty));
+                var firstName = ReadPropertyString(properties, _options.ContactFirstNameProperty);
+                var phoneNumber = ReadPropertyString(properties, _options.ContactPhoneProperty);
+                var kundstatus = ReadPropertyString(properties, _options.ContactKundstatusProperty);
 
                 result.Contacts.Add(new ContactSearchRow
                 {
                     ContactId = contactId,
                     Saljare = saljare,
-                    SaleDateUtc = saleDate
+                    SaleDateUtc = saleDate,
+                    FirstName = firstName,
+                    PhoneNumber = phoneNumber,
+                    Kundstatus = kundstatus
                 });
             }
 
@@ -949,6 +1231,12 @@ namespace WebApplication2.Services.HubSpot
         }
 
         private static List<string> ReadAssociatedContactIds(JsonElement item)
+            => ReadAssociatedIds(item, "contacts");
+
+        private static List<string> ReadAssociatedLineItemIds(JsonElement item)
+            => ReadAssociatedIds(item, "line_items");
+
+        private static List<string> ReadAssociatedIds(JsonElement item, string associationName)
         {
             if (!item.TryGetProperty("associations", out var associationsElement) ||
                 associationsElement.ValueKind != JsonValueKind.Object)
@@ -956,13 +1244,13 @@ namespace WebApplication2.Services.HubSpot
                 return new List<string>();
             }
 
-            if (!associationsElement.TryGetProperty("contacts", out var contactsElement) ||
-                contactsElement.ValueKind != JsonValueKind.Object)
+            if (!associationsElement.TryGetProperty(associationName, out var associationElement) ||
+                associationElement.ValueKind != JsonValueKind.Object)
             {
                 return new List<string>();
             }
 
-            if (!contactsElement.TryGetProperty("results", out var resultsElement) ||
+            if (!associationElement.TryGetProperty("results", out var resultsElement) ||
                 resultsElement.ValueKind != JsonValueKind.Array)
             {
                 return new List<string>();

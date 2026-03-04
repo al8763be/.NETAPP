@@ -396,6 +396,18 @@ namespace WebApplication2.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("nvarchar(16)");
 
+                    b.Property<string>("ContactFirstName")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("ContactKundstatus")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("ContactPhoneNumber")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
                     b.Property<string>("DealName")
                         .HasMaxLength(512)
                         .HasColumnType("nvarchar(512)");
@@ -424,6 +436,9 @@ namespace WebApplication2.Migrations
 
                     b.Property<DateTime>("LastSeenUtc")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("LineItemsJson")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("OwnerEmail")
                         .IsRequired()

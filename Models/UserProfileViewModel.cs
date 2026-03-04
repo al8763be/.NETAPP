@@ -33,5 +33,19 @@ namespace WebApplication2.Models
         public decimal? Amount { get; set; }
         public decimal? SellerProvision { get; set; }
         public string CurrencyCode { get; set; } = string.Empty;
+        public string ContactFirstName { get; set; } = string.Empty;
+        public string ContactPhoneNumber { get; set; } = string.Empty;
+        public string ContactKundstatus { get; set; } = string.Empty;
+        public List<UserHubSpotDealLineItemViewModel> LineItems { get; set; } = new();
+    }
+
+    public class UserHubSpotDealLineItemViewModel
+    {
+        public string LineItemId { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public decimal? Quantity { get; set; }
+        public decimal? Price { get; set; }
+        public decimal? Amount { get; set; }
+        public string Sku { get; set; } = string.Empty;
     }
 }
