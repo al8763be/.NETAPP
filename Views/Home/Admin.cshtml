@@ -31,7 +31,13 @@ var regionOptions = ViewBag.RegionOptions as List<Microsoft.AspNetCore.Mvc.Rende
             left: 0;
             right: 0;
             z-index: 1000;
-            padding: 0 20px !important;
+            padding: 10px 20px !important;
+            background: linear-gradient(180deg, rgba(7, 57, 105, 0.56) 0%, rgba(7, 57, 105, 0.18) 65%, rgba(7, 57, 105, 0) 100%);
+            backdrop-filter: blur(3px);
+        }
+
+        .page-nav-controls {
+            gap: 0.5rem;
         }
 
         .hero-image {
@@ -44,6 +50,7 @@ var regionOptions = ViewBag.RegionOptions as List<Microsoft.AspNetCore.Mvc.Rende
             display: flex;
             align-items: center;
             justify-content: center;
+            padding-top: 108px;
         }
 
         .hero-text {
@@ -142,6 +149,80 @@ var regionOptions = ViewBag.RegionOptions as List<Microsoft.AspNetCore.Mvc.Rende
             white-space: normal;
             line-height: 1.2;
         }
+
+        @@media (max-width: 991.98px) {
+            .navbar {
+                position: absolute !important;
+                background: linear-gradient(180deg, rgba(7, 57, 105, 0.72) 0%, rgba(7, 57, 105, 0.3) 65%, rgba(7, 57, 105, 0) 100%);
+                backdrop-filter: blur(3px);
+                padding: 10px 12px !important;
+                align-items: flex-start !important;
+                gap: 10px;
+            }
+
+            .page-nav-controls {
+                width: 100%;
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: flex-end;
+            }
+
+            .page-nav-controls .btn {
+                flex: 1 1 auto;
+                min-width: 120px;
+            }
+
+            .hero-image {
+                height: auto;
+                min-height: 40vh;
+                padding: 124px 14px 20px;
+            }
+
+            .hero-text {
+                width: 100%;
+                padding: 8px 4px;
+            }
+
+            .hero-text h1 {
+                font-size: 1.7rem;
+            }
+
+            .hero-text h3 {
+                font-size: 1rem;
+            }
+
+            .search-container {
+                max-width: 100%;
+                width: 100%;
+            }
+
+            .alert {
+                left: 12px;
+                right: 12px;
+                top: 12px;
+                min-width: 0;
+            }
+        }
+
+        @@media (max-width: 575.98px) {
+            .navbar-brand img {
+                height: 42px;
+            }
+
+            .search-container {
+                flex-direction: column;
+            }
+
+            .search-input {
+                padding: 13px 14px;
+            }
+
+            .search-btn {
+                width: 100%;
+                padding: 11px 14px;
+                min-width: 0;
+            }
+        }
     </style>
 </head>
 <body class="body2">
@@ -165,13 +246,13 @@ var regionOptions = ViewBag.RegionOptions as List<Microsoft.AspNetCore.Mvc.Rende
 
 <header>
     <!-- Navbar som ligger ovanpå hero-bilden -->
-    <nav class="navbar navbar-light justify-content-between">
+    <nav class="navbar navbar-light justify-content-between center-logo-navbar">
         <!-- Klickbar logga till vänster -->
         <a href="@Url.Action("Index", "Social")" class="navbar-brand">
             <img src="~/images/stl-loga.png" width="auto" height="50" alt="STL Logga">
         </a>
 
-        <div class="d-flex align-items-center">
+        <div class="d-flex align-items-center page-nav-controls">
             <a asp-controller="Home" asp-action="Profile" class="btn btn-outline-light btn-sm me-2">
                 Min profil
             </a>
@@ -202,7 +283,7 @@ var regionOptions = ViewBag.RegionOptions as List<Microsoft.AspNetCore.Mvc.Rende
                 </div>
                 <div class="col-md-4 mb-3">
                     <label for="fullName" class="form-label">Namn</label>
-                    <input type="text" class="form-control" id="fullName" name="fullName" required placeholder="T.ex. Jonas al Dakhil">
+                    <input type="text" class="form-control" id="fullName" name="fullName" required placeholder="T.ex. Alex B">
                 </div>
                 <div class="col-md-3 mb-3">
                     <label for="region" class="form-label">Region</label>
@@ -257,7 +338,7 @@ var regionOptions = ViewBag.RegionOptions as List<Microsoft.AspNetCore.Mvc.Rende
                     <th>Användarnamn</th>
                     <th>Namn</th>
                     <th>Region</th>
-                    <th>Role</th>
+                    <th>Roll</th>
                     <th>Behörighet</th>
                     <th>Åtgärder</th>
                 </tr>
@@ -270,6 +351,7 @@ var regionOptions = ViewBag.RegionOptions as List<Microsoft.AspNetCore.Mvc.Rende
                 var isCurrentUser = user.Id == ViewContext.HttpContext.User.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
                 var employeeNumber = user.UserName?.Trim() ?? string.Empty;
                 var profile = profilesByEmployeeNumber.ContainsKey(employeeNumber) ? profilesByEmployeeNumber[employeeNumber] : null;
+                var editFormId = $"editProfile-{user.Id}";
 
                 <tr class="@(isAdmin ? "table-warning" : "")">
                     <td>
@@ -279,9 +361,38 @@ var regionOptions = ViewBag.RegionOptions as List<Microsoft.AspNetCore.Mvc.Rende
                         <span class="badge bg-primary">Du</span>
                         }
                     </td>
-                    <td>@(profile?.FullName ?? "-")</td>
-                    <td>@(profile?.Region ?? "-")</td>
-                    <td>@(profile?.Role ?? "-")</td>
+                    <td>
+                        <input type="text"
+                               class="form-control form-control-sm"
+                               name="fullName"
+                               form="@editFormId"
+                               required
+                               maxlength="128"
+                               value="@(profile?.FullName ?? string.Empty)"
+                               placeholder="Namn" />
+                    </td>
+                    <td>
+                        <select class="form-select form-select-sm"
+                                name="region"
+                                form="@editFormId"
+                                required>
+                            <option value="">-- Välj region --</option>
+                            @foreach (var option in regionOptions)
+                            {
+                                var isSelected = string.Equals(option.Value, profile?.Region, StringComparison.OrdinalIgnoreCase);
+                                <option value="@option.Value" selected="@(isSelected ? "selected" : null)">@option.Text</option>
+                            }
+                        </select>
+                    </td>
+                    <td>
+                        <input type="text"
+                               class="form-control form-control-sm"
+                               name="role"
+                               form="@editFormId"
+                               maxlength="64"
+                               value="@(profile?.Role ?? string.Empty)"
+                               placeholder="T.ex. Säljare" />
+                    </td>
                     <td>
                         @if (isAdmin)
                         {
@@ -329,6 +440,12 @@ var regionOptions = ViewBag.RegionOptions as List<Microsoft.AspNetCore.Mvc.Rende
                                 </button>
                             </form>
                         }
+
+                        <form id="@editFormId" asp-controller="Home" asp-action="UpdateUserProfile" method="post">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="userId" value="@user.Id" />
+                            <button type="submit" class="btn btn-primary btn-sm">Spara profil</button>
+                        </form>
 
                         @* Lösenordsåterställning *@
                         <button type="button" class="btn btn-info btn-sm" data-bs-toggle="modal" data-bs-target="#resetModal-@user.Id">

@@ -11,15 +11,74 @@
     <title>@ViewData["Title"] - STL Forum</title>
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css"/>
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true"/>
+    <style>
+        .body2 {
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 0;
+        }
+
+        .navbar {
+            position: absolute !important;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            padding: 10px 20px !important;
+            background: linear-gradient(180deg, rgba(7, 57, 105, 0.56) 0%, rgba(7, 57, 105, 0.18) 65%, rgba(7, 57, 105, 0) 100%);
+            backdrop-filter: blur(3px);
+        }
+
+        .page-nav-controls {
+            gap: 0.5rem;
+        }
+
+        .page-shell {
+            padding-top: 86px;
+        }
+
+        @@media (max-width: 991.98px) {
+            .navbar {
+                position: absolute !important;
+                background: linear-gradient(180deg, rgba(7, 57, 105, 0.72) 0%, rgba(7, 57, 105, 0.3) 65%, rgba(7, 57, 105, 0) 100%);
+                backdrop-filter: blur(3px);
+                padding: 10px 12px !important;
+                align-items: flex-start !important;
+                gap: 10px;
+            }
+
+            .page-nav-controls {
+                width: 100%;
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: flex-end;
+            }
+
+            .page-nav-controls .btn {
+                flex: 1 1 auto;
+                min-width: 120px;
+            }
+
+            .page-shell {
+                padding-top: 116px;
+            }
+        }
+
+        @@media (max-width: 575.98px) {
+            .navbar-brand img {
+                height: 42px;
+            }
+        }
+    </style>
 </head>
-<body class="bg-light">
+<body class="body2">
 <header>
-    <nav class="navbar navbar-light bg-white border-bottom px-3">
+    <nav class="navbar navbar-light justify-content-between center-logo-navbar">
         <a href="@Url.Action("Index", "Social")" class="navbar-brand">
-            <img src="~/images/stl-loga.png" width="auto" height="40" alt="STL Logga">
+            <img src="~/images/stl-loga.png" width="auto" height="50" alt="STL Logga">
         </a>
-        <div class="d-flex align-items-center">
-            <a asp-controller="Home" asp-action="Profile" class="btn btn-outline-primary btn-sm me-2">
+        <div class="d-flex align-items-center page-nav-controls">
+            <a asp-controller="Home" asp-action="Profile" class="btn btn-outline-light btn-sm me-2">
                 Min profil
             </a>
             <a href="@Url.Action("Logout", "Home")" class="btn btn-danger btn-sm">Sign out</a>
@@ -27,7 +86,7 @@
     </nav>
 </header>
 
-<main class="container my-4">
+<main class="container my-4 page-shell">
     <div class="mb-3">
         <a asp-controller="Social" asp-action="Index" class="btn btn-link text-decoration-none p-0">← Tillbaka</a>
     </div>

@@ -272,6 +272,93 @@ namespace WebApplication2.Controllers
             return RedirectToAction("Admin");
         }
 
+        [HttpPost]
+        [Authorize(Roles = "SuperAdmin")]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> UpdateUserProfile(string userId, string fullName, string region, string? role)
+        {
+            try
+            {
+                userId = (userId ?? string.Empty).Trim();
+                fullName = (fullName ?? string.Empty).Trim();
+                region = (region ?? string.Empty).Trim();
+                role = string.IsNullOrWhiteSpace(role) ? null : role.Trim();
+
+                if (string.IsNullOrWhiteSpace(userId))
+                {
+                    TempData["ErrorMessage"] = "Ogiltigt användar-ID.";
+                    return RedirectToAction("Admin");
+                }
+
+                if (string.IsNullOrWhiteSpace(fullName))
+                {
+                    TempData["ErrorMessage"] = "Namn måste fyllas i.";
+                    return RedirectToAction("Admin");
+                }
+
+                if (!SupportedRegionSet.Contains(region))
+                {
+                    TempData["ErrorMessage"] = "Ogiltig region vald.";
+                    return RedirectToAction("Admin");
+                }
+
+                if (!string.IsNullOrEmpty(role) && role.Length > 64)
+                {
+                    TempData["ErrorMessage"] = "Roll får vara max 64 tecken.";
+                    return RedirectToAction("Admin");
+                }
+
+                var user = await _userManager.FindByIdAsync(userId);
+                if (user == null)
+                {
+                    TempData["ErrorMessage"] = "Användaren hittades inte.";
+                    return RedirectToAction("Admin");
+                }
+
+                var employeeNumber = (user.UserName ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(employeeNumber))
+                {
+                    TempData["ErrorMessage"] = "Användaren saknar giltigt användarnamn.";
+                    return RedirectToAction("Admin");
+                }
+
+                var existingProfile = await _context.EmployeeProfiles
+                    .FirstOrDefaultAsync(p => p.EmployeeNumber == employeeNumber);
+
+                if (existingProfile == null)
+                {
+                    _context.EmployeeProfiles.Add(new EmployeeProfile
+                    {
+                        EmployeeNumber = employeeNumber,
+                        FullName = fullName,
+                        Region = region,
+                        Role = role,
+                        UserId = user.Id,
+                        CreatedUtc = DateTime.UtcNow,
+                        UpdatedUtc = DateTime.UtcNow
+                    });
+                }
+                else
+                {
+                    existingProfile.FullName = fullName;
+                    existingProfile.Region = region;
+                    existingProfile.Role = role;
+                    existingProfile.UserId = user.Id;
+                    existingProfile.UpdatedUtc = DateTime.UtcNow;
+                }
+
+                await _context.SaveChangesAsync();
+                TempData["SuccessMessage"] = $"Profil uppdaterad för {employeeNumber}.";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating user profile");
+                TempData["ErrorMessage"] = "Ett fel uppstod vid uppdatering av användarprofil.";
+            }
+
+            return RedirectToAction("Admin");
+        }
+
         private string GenerateSecurePassword()
         {
             const string upperCase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";

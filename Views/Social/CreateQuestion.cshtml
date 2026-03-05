@@ -23,7 +23,13 @@ ViewData["Title"] = "Skapa ny fråga";
             left: 0;
             right: 0;
             z-index: 1000;
-            padding: 0 20px !important;
+            padding: 10px 20px !important;
+            background: linear-gradient(180deg, rgba(7, 57, 105, 0.56) 0%, rgba(7, 57, 105, 0.18) 65%, rgba(7, 57, 105, 0) 100%);
+            backdrop-filter: blur(3px);
+        }
+
+        .page-nav-controls {
+            gap: 0.5rem;
         }
 
         .hero-image {
@@ -35,6 +41,7 @@ ViewData["Title"] = "Skapa ny fråga";
             display: flex;
             align-items: center;
             justify-content: center;
+            padding-top: 108px;
         }
 
         .hero-text {
@@ -96,6 +103,61 @@ ViewData["Title"] = "Skapa ny fråga";
             z-index: 1050;
             min-width: 300px;
         }
+
+        @@media (max-width: 991.98px) {
+            .navbar {
+                position: absolute !important;
+                background: linear-gradient(180deg, rgba(7, 57, 105, 0.72) 0%, rgba(7, 57, 105, 0.3) 65%, rgba(7, 57, 105, 0) 100%);
+                backdrop-filter: blur(3px);
+                padding: 10px 12px !important;
+                align-items: flex-start !important;
+                gap: 10px;
+            }
+
+            .page-nav-controls {
+                width: 100%;
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: flex-end;
+            }
+
+            .page-nav-controls .btn {
+                flex: 1 1 auto;
+                min-width: 120px;
+            }
+
+            .hero-image {
+                height: auto;
+                min-height: 38vh;
+                padding: 122px 14px 20px;
+            }
+
+            .hero-text {
+                width: 100%;
+                padding: 8px 4px;
+            }
+
+            .hero-text h1 {
+                font-size: 1.65rem;
+            }
+
+            .hero-text h3 {
+                font-size: 1rem;
+            }
+
+            .alert {
+                left: 12px;
+                right: 12px;
+                top: 12px;
+                min-width: 0;
+            }
+        }
+
+        @@media (max-width: 575.98px) {
+            .navbar-brand img {
+                height: 42px;
+            }
+        }
     </style>
 </head>
 <body class="body2">
@@ -119,13 +181,13 @@ ViewData["Title"] = "Skapa ny fråga";
 
 <header>
     <!-- Navbar som ligger ovanpå hero-bilden -->
-    <nav class="navbar navbar-light justify-content-between">
+    <nav class="navbar navbar-light justify-content-between center-logo-navbar">
         <!-- Klickbar logga till vänster -->
         <a href="@Url.Action("Index", "Social")" class="navbar-brand">
             <img src="~/images/stl-loga.png" width="auto" height="50" alt="STL Logga">
         </a>
 
-        <div class="d-flex align-items-center">
+        <div class="d-flex align-items-center page-nav-controls">
             <a asp-controller="Home" asp-action="Profile" class="btn btn-outline-light btn-sm me-2">
                 Min profil
             </a>

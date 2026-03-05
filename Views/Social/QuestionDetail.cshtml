@@ -24,7 +24,13 @@ ViewData["Title"] = @Model.Title;
             left: 0;
             right: 0;
             z-index: 1000;
-            padding: 0 20px !important;
+            padding: 10px 20px !important;
+            background: linear-gradient(180deg, rgba(7, 57, 105, 0.56) 0%, rgba(7, 57, 105, 0.18) 65%, rgba(7, 57, 105, 0) 100%);
+            backdrop-filter: blur(3px);
+        }
+
+        .social-nav-controls {
+            gap: 0.5rem;
         }
 
         .hero-image {
@@ -37,6 +43,7 @@ ViewData["Title"] = @Model.Title;
             display: flex;
             align-items: center;
             justify-content: center;
+            padding-top: 108px;
         }
 
         .hero-text {
@@ -167,6 +174,101 @@ ViewData["Title"] = @Model.Title;
             z-index: 1050;
             min-width: 300px;
         }
+
+        @@media (max-width: 991.98px) {
+            .navbar {
+                position: absolute !important;
+                background: linear-gradient(180deg, rgba(7, 57, 105, 0.72) 0%, rgba(7, 57, 105, 0.3) 65%, rgba(7, 57, 105, 0) 100%);
+                backdrop-filter: blur(3px);
+                padding: 10px 12px !important;
+                align-items: flex-start !important;
+                gap: 10px;
+            }
+
+            .social-nav-controls {
+                width: 100%;
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: flex-end;
+            }
+
+            .social-nav-controls .btn {
+                flex: 1 1 auto;
+                min-width: 120px;
+            }
+
+            .hero-image {
+                height: auto;
+                min-height: 42vh;
+                padding: 122px 14px 20px;
+            }
+
+            .hero-text {
+                width: 100%;
+                padding: 8px 4px;
+            }
+
+            .hero-text h2 {
+                font-size: 1.35rem;
+                line-height: 1.35;
+                margin-bottom: 14px;
+            }
+
+            .search-container {
+                max-width: 100%;
+                width: 100%;
+            }
+
+            .btn_red.tillbaka {
+                margin-bottom: 16px;
+            }
+
+            .card-body .d-flex.justify-content-between.align-items-center {
+                flex-direction: column;
+                align-items: flex-start !important;
+                gap: 10px;
+            }
+
+            .card-body .d-flex.justify-content-between.align-items-center > div {
+                width: 100%;
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+            }
+
+            .question-content {
+                font-size: 1rem;
+                line-height: 1.5;
+            }
+
+            .alert {
+                left: 12px;
+                right: 12px;
+                top: 12px;
+                min-width: 0;
+            }
+        }
+
+        @@media (max-width: 575.98px) {
+            .navbar-brand img {
+                height: 42px;
+            }
+
+            .search-container {
+                flex-direction: column;
+                border-radius: 10px;
+            }
+
+            .search-input {
+                padding: 13px 14px;
+            }
+
+            .search-btn {
+                width: 100%;
+                padding: 11px 14px;
+                min-width: 0;
+            }
+        }
     </style>
 </head>
 <body class="body2">
@@ -190,13 +292,13 @@ ViewData["Title"] = @Model.Title;
 
 <header>
     <!-- Navbar som ligger ovanpå hero-bilden -->
-    <nav class="navbar navbar-light justify-content-between">
+    <nav class="navbar navbar-light justify-content-between center-logo-navbar">
         <!-- Klickbar logga till vänster -->
         <a href="@Url.Action("Index", "Social")" class="navbar-brand">
             <img src="~/images/stl-loga.png" width="auto" height="50" alt="STL Logga">
         </a>
 
-        <div class="d-flex align-items-center">
+        <div class="d-flex align-items-center social-nav-controls">
             <a asp-controller="Home" asp-action="Profile" class="btn btn-outline-light btn-sm me-2">
                 Min profil
             </a>

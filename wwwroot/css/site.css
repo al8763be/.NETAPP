@@ -29,3 +29,39 @@ body {
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
   text-align: start;
 }
+
+.center-logo-navbar {
+  position: relative;
+}
+
+.center-logo-navbar .navbar-brand {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+}
+
+.center-logo-navbar .page-nav-controls,
+.center-logo-navbar .social-nav-controls {
+  margin-left: auto;
+  position: relative;
+  z-index: 1;
+}
+
+@media (max-width: 991.98px) {
+  .center-logo-navbar .navbar-brand {
+    position: static;
+    left: auto;
+    transform: none;
+    margin: 0 auto;
+    order: 1;
+  }
+
+  .center-logo-navbar .page-nav-controls,
+  .center-logo-navbar .social-nav-controls {
+    width: 100%;
+    justify-content: center !important;
+    margin-left: 0;
+    order: 2;
+  }
+}
