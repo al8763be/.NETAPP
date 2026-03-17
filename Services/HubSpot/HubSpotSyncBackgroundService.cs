@@ -5,6 +5,8 @@ namespace WebApplication2.Services.HubSpot
 {
     public class HubSpotSyncBackgroundService : BackgroundService
     {
+        private static readonly TimeSpan MinimumInFlightWindow = TimeSpan.FromMinutes(15);
+        private static readonly TimeSpan MinimumStaleRunTimeout = TimeSpan.FromMinutes(20);
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly HubSpotOptions _options;
         private readonly ILogger<HubSpotSyncBackgroundService> _logger;
@@ -65,10 +67,40 @@ namespace WebApplication2.Services.HubSpot
             }
 
             var nowUtc = DateTime.UtcNow;
+            var inFlightWindow = GetInFlightWindow(options.SyncCron);
+            var staleRunTimeout = GetStaleRunTimeout(options.SyncCron);
+
+            var staleRuns = await context.HubSpotSyncRuns
+                .Where(r =>
+                    r.Status == "Started" &&
+                    r.FinishedUtc == null &&
+                    r.StartedUtc < nowUtc.Subtract(staleRunTimeout))
+                .ToListAsync(cancellationToken);
+
+            if (staleRuns.Count > 0)
+            {
+                foreach (var staleRun in staleRuns)
+                {
+                    staleRun.Status = "Failed";
+                    staleRun.FinishedUtc = nowUtc;
+                    staleRun.ErrorMessage = $"Recovered stale sync lock after exceeding {staleRunTimeout.TotalMinutes:0} minutes.";
+                }
+
+                await context.SaveChangesAsync(cancellationToken);
+
+                _logger.LogWarning(
+                    "Recovered {RunCount} stale HubSpot sync run(s) older than {TimeoutMinutes} minutes.",
+                    staleRuns.Count,
+                    staleRunTimeout.TotalMinutes);
+            }
+
             var hasInFlightRun = await context.HubSpotSyncRuns
                 .AsNoTracking()
                 .AnyAsync(
-                    r => r.Status == "Started" && r.StartedUtc >= nowUtc.AddMinutes(-30),
+                    r =>
+                        r.Status == "Started" &&
+                        r.FinishedUtc == null &&
+                        r.StartedUtc >= nowUtc.Subtract(inFlightWindow),
                     cancellationToken);
 
             if (hasInFlightRun)
@@ -118,6 +150,20 @@ namespace WebApplication2.Services.HubSpot
             }
 
             return TimeSpan.FromMinutes(fallbackMinutes);
+        }
+
+        private static TimeSpan GetInFlightWindow(string? syncCron)
+        {
+            var syncInterval = ResolveSyncInterval(syncCron);
+            var window = TimeSpan.FromMinutes(syncInterval.TotalMinutes * 3);
+            return window < MinimumInFlightWindow ? MinimumInFlightWindow : window;
+        }
+
+        private static TimeSpan GetStaleRunTimeout(string? syncCron)
+        {
+            var inFlightWindow = GetInFlightWindow(syncCron);
+            var timeout = TimeSpan.FromMinutes(inFlightWindow.TotalMinutes + 5);
+            return timeout < MinimumStaleRunTimeout ? MinimumStaleRunTimeout : timeout;
         }
 
         private static DateTime GetNextRunUtc(DateTime nowUtc, TimeSpan syncInterval)
