@@ -45,6 +45,7 @@ public class HubSpotSyncServiceTests
                             IsFulfilled = true,
                             FulfilledDateUtc = DateTime.UtcNow,
                             LastModifiedUtc = DateTime.UtcNow,
+                            ContactKundstatus = "Klar kund",
                             PayloadHash = "hash-new"
                         }
                     ]
@@ -81,6 +82,7 @@ public class HubSpotSyncServiceTests
                             IsFulfilled = true,
                             FulfilledDateUtc = DateTime.UtcNow,
                             LastModifiedUtc = DateTime.UtcNow,
+                            ContactKundstatus = "Klar kund",
                             PayloadHash = "hash-fulfilled"
                         },
                         new HubSpotDealRecord
@@ -175,6 +177,7 @@ public class HubSpotSyncServiceTests
                             LastModifiedUtc = DateTime.UtcNow,
                             Amount = 90m,
                             CurrencyCode = "SEK",
+                            ContactKundstatus = "Klar kund",
                             PayloadHash = "hash-missing-owner-id-with-saljid"
                         }
                     ]
@@ -218,6 +221,7 @@ public class HubSpotSyncServiceTests
                             LastModifiedUtc = DateTime.UtcNow,
                             Amount = 250m,
                             CurrencyCode = "SEK",
+                            ContactKundstatus = "Klar kund",
                             PayloadHash = "hash-b"
                         }
                     ]
@@ -303,6 +307,7 @@ public class HubSpotSyncServiceTests
                             LastModifiedUtc = fulfilledAt,
                             Amount = 120m,
                             CurrencyCode = "SEK",
+                            ContactKundstatus = "Klar kund",
                             PayloadHash = "hash-fulfilled"
                         }
                     ]
@@ -504,6 +509,42 @@ public class HubSpotSyncServiceTests
     }
 
     [Fact]
+    public async Task RunIncrementalSyncAsync_RemovesPreviouslyImportedDeal_WhenStoredKundstatusIsNotFulfilledOrRetained()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        var user = await env.CreateUserAsync("2875", "2875@stl.nu");
+
+        env.Context.HubSpotDealImports.Add(new HubSpotDealImport
+        {
+            ExternalDealId = "deal-ej-svar-stale",
+            SaljId = "2875",
+            OwnerEmail = "2875@stl.nu",
+            OwnerUserId = user.Id,
+            IsFulfilled = true,
+            FulfilledDateUtc = DateTime.UtcNow,
+            ContactKundstatus = "Ej svar",
+            FirstSeenUtc = DateTime.UtcNow,
+            LastSeenUtc = DateTime.UtcNow
+        });
+        await env.Context.SaveChangesAsync();
+
+        var client = new FakeHubSpotClient(
+            dealPages:
+            [
+                new HubSpotDealsPageResult()
+            ]);
+
+        var sut = CreateSut(env, client);
+
+        var result = await sut.RunIncrementalSyncAsync();
+
+        Assert.True(result.Succeeded);
+        Assert.Empty(await env.Context.HubSpotDealImports
+            .Where(d => d.ExternalDealId == "deal-ej-svar-stale")
+            .ToListAsync());
+    }
+
+    [Fact]
     public async Task RunIncrementalSyncAsync_RetainsLostDeal_WhenKundstatusIsWinback()
     {
         using var env = TestIdentityEnvironment.Create();
@@ -673,6 +714,7 @@ public class HubSpotSyncServiceTests
                             SellerProvision = 10m,
                             CurrencyCode = "SEK",
                             DealStage = "closedwon",
+                            ContactKundstatus = "Klar kund",
                             PayloadHash = "payload-v1"
                         }
                     ]
@@ -694,6 +736,7 @@ public class HubSpotSyncServiceTests
                             SellerProvision = 25m,
                             CurrencyCode = "SEK",
                             DealStage = "closedwon",
+                            ContactKundstatus = "Klar kund",
                             PayloadHash = "payload-v2"
                         }
                     ]
@@ -758,6 +801,7 @@ public class HubSpotSyncServiceTests
                             SaljId = "1234",
                             FulfilledDateUtc = fulfilledAt,
                             LastModifiedUtc = fulfilledAt,
+                            ContactKundstatus = "Klar kund",
                             PayloadHash = "dedupe-1"
                         },
                         new HubSpotDealRecord
@@ -768,6 +812,7 @@ public class HubSpotSyncServiceTests
                             SaljId = " 1234 ",
                             FulfilledDateUtc = fulfilledAt,
                             LastModifiedUtc = fulfilledAt,
+                            ContactKundstatus = "Klar kund",
                             PayloadHash = "dedupe-2"
                         }
                     ]

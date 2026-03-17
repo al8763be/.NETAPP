@@ -108,7 +108,7 @@ namespace WebApplication2.Services.HubSpot
                 run.DealsUpdated += activeContestSync.Updated;
                 run.DealsSkipped += activeContestSync.Skipped;
 
-                await RemoveExcludedFulfilledDealsAsync(cancellationToken);
+                await NormalizeStoredDealsByKundstatusAsync(cancellationToken);
                 await RecalculateActiveContestEntriesAsync(cancellationToken);
                 run.Status = "Succeeded";
                 run.FinishedUtc = DateTime.UtcNow;
@@ -232,7 +232,7 @@ namespace WebApplication2.Services.HubSpot
                     }
                 }
 
-                await RemoveExcludedFulfilledDealsAsync(cancellationToken);
+                await NormalizeStoredDealsByKundstatusAsync(cancellationToken);
                 await RecalculateActiveContestEntriesAsync(cancellationToken);
 
                 var syncState = await _context.HubSpotSyncStates
@@ -520,35 +520,35 @@ namespace WebApplication2.Services.HubSpot
             await _context.SaveChangesAsync(cancellationToken);
         }
 
-        private async Task RemoveExcludedFulfilledDealsAsync(CancellationToken cancellationToken)
+        private async Task NormalizeStoredDealsByKundstatusAsync(CancellationToken cancellationToken)
         {
-            var staleDeals = await _context.HubSpotDealImports
-                .Where(d =>
-                    d.IsFulfilled &&
-                    d.ContactKundstatus != null &&
-                    (
-                        d.ContactKundstatus.Trim().ToLower() == "avslag" ||
-                        d.ContactKundstatus.Trim().ToLower() == "annullerat" ||
-                        d.ContactKundstatus.Trim().ToLower() == "winback" ||
-                        d.ContactKundstatus.Trim().ToLower() == "saljare" ||
-                        d.ContactKundstatus.Trim().ToLower() == "säljare"))
+            var storedDeals = await _context.HubSpotDealImports
                 .ToListAsync(cancellationToken);
 
-            if (staleDeals.Count == 0)
+            if (storedDeals.Count == 0)
             {
                 return;
             }
 
-            var dealsToRemove = staleDeals
-                .Where(d => !HubSpotDealStatus.IsLostKundstatus(d.ContactKundstatus))
-                .ToList();
-            var dealsToDemote = staleDeals
-                .Where(d => HubSpotDealStatus.IsLostKundstatus(d.ContactKundstatus))
-                .ToList();
+            var dealsToRemove = new List<HubSpotDealImport>();
+            var dealsToNormalize = new List<HubSpotDealImport>();
 
-            foreach (var deal in dealsToDemote)
+            foreach (var deal in storedDeals)
             {
-                deal.IsFulfilled = false;
+                var shouldBeFulfilled = HubSpotDealStatus.IsFulfilledKundstatus(deal.ContactKundstatus);
+                var shouldRetainLost = HubSpotDealStatus.IsLostKundstatus(deal.ContactKundstatus);
+
+                if (!shouldBeFulfilled && !shouldRetainLost)
+                {
+                    dealsToRemove.Add(deal);
+                    continue;
+                }
+
+                if (deal.IsFulfilled != shouldBeFulfilled)
+                {
+                    deal.IsFulfilled = shouldBeFulfilled;
+                    dealsToNormalize.Add(deal);
+                }
             }
 
             if (dealsToRemove.Count > 0)
@@ -559,8 +559,8 @@ namespace WebApplication2.Services.HubSpot
             await _context.SaveChangesAsync(cancellationToken);
 
             _logger.LogInformation(
-                "Normalized {DemotedCount} HubSpot deals to lost and removed {RemovedCount} HubSpot deals with excluded fulfilled kundstatus.",
-                dealsToDemote.Count,
+                "Normalized {NormalizedCount} HubSpot deals by kundstatus and removed {RemovedCount} non-qualifying HubSpot deals.",
+                dealsToNormalize.Count,
                 dealsToRemove.Count);
         }
 

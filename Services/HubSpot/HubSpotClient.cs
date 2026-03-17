@@ -364,10 +364,7 @@ namespace WebApplication2.Services.HubSpot
                 deal.ContactFirstName = string.IsNullOrWhiteSpace(contactValues.FirstName) ? null : contactValues.FirstName.Trim();
                 deal.ContactPhoneNumber = string.IsNullOrWhiteSpace(contactValues.PhoneNumber) ? null : contactValues.PhoneNumber.Trim();
                 deal.ContactKundstatus = string.IsNullOrWhiteSpace(contactValues.Kundstatus) ? null : contactValues.Kundstatus.Trim();
-                if (HubSpotDealStatus.ExcludesFulfilledStatus(deal.ContactKundstatus))
-                {
-                    deal.IsFulfilled = false;
-                }
+                deal.IsFulfilled = HubSpotDealStatus.IsFulfilledKundstatus(deal.ContactKundstatus);
             }
         }
 

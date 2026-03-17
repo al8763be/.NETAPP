@@ -10,8 +10,13 @@ namespace WebApplication2.Tests.Services.HubSpot;
 
 public class HubSpotClientStatusTests
 {
-    [Fact]
-    public async Task GetFulfilledDealsAsync_TreatsConfiguredSwedishStatusesAsFulfilled_UsingContactFields()
+    [Theory]
+    [InlineData("Nyregistrerad")]
+    [InlineData("Ombokning")]
+    [InlineData("Bokad")]
+    [InlineData("Klar kund")]
+    [InlineData("Installerad - Ej fakturerad")]
+    public async Task GetFulfilledDealsAsync_TreatsConfiguredKundstatusValuesAsFulfilled_UsingContactFields(string kundstatus)
     {
         var dealsPayload = """
         {
@@ -69,14 +74,16 @@ public class HubSpotClientStatusTests
               "id": "contact-1",
               "properties": {
                 "saljare": "1111",
-                "forsaljningsdatum": "2025-02-20"
+                "forsaljningsdatum": "2025-02-20",
+                "kundstatus": "__KUNDSTATUS__"
               }
             },
             {
               "id": "contact-2",
               "properties": {
                 "saljare": "2222",
-                "forsaljningsdatum": "2025-02-21"
+                "forsaljningsdatum": "2025-02-21",
+                "kundstatus": "__KUNDSTATUS__"
               }
             }
           ]
@@ -104,7 +111,7 @@ public class HubSpotClientStatusTests
 
         var client = CreateClient(
             dealsPayload,
-            contactsPayload,
+            contactsPayload.Replace("__KUNDSTATUS__", kundstatus),
             dealToContactAssociationsPayload: dealToContactAssociationsPayload);
 
         var result = await client.GetFulfilledDealsAsync(null, null, 100);
@@ -113,12 +120,16 @@ public class HubSpotClientStatusTests
         Assert.All(result.Deals, d => Assert.True(d.IsFulfilled));
         Assert.Equal("1111", result.Deals[0].SaljId);
         Assert.Equal(new DateTime(2025, 2, 20, 0, 0, 0, DateTimeKind.Utc), result.Deals[0].FulfilledDateUtc);
+        Assert.Equal(kundstatus, result.Deals[0].ContactKundstatus);
         Assert.Equal(12.5m, result.Deals[0].SellerProvision);
         Assert.Null(result.Deals[1].SellerProvision);
     }
 
-    [Fact]
-    public async Task GetFulfilledDealsAsync_MarksStatusesOutsideConfiguredListAsNotFulfilled()
+    [Theory]
+    [InlineData("Ej svar")]
+    [InlineData("Offert")]
+    [InlineData("Strul")]
+    public async Task GetFulfilledDealsAsync_MarksNonQualifyingKundstatusValuesAsNotFulfilled(string kundstatus)
     {
         var dealsPayload = """
         {
@@ -135,18 +146,57 @@ public class HubSpotClientStatusTests
                 "amount": "300",
                 "deal_currency_code": "SEK",
                 "saljarprovision": "30.00"
+              },
+              "associations": {
+                "contacts": {
+                  "results": [
+                    { "id": "contact-3", "type": "deal_to_contact" }
+                  ]
+                }
               }
             }
           ]
         }
         """;
 
-        var client = CreateClient(dealsPayload, """{"results":[]}""");
+        var contactsPayload = """
+        {
+          "results": [
+            {
+              "id": "contact-3",
+              "properties": {
+                "saljare": "3333",
+                "forsaljningsdatum": "2025-02-20",
+                "kundstatus": "__KUNDSTATUS__"
+              }
+            }
+          ]
+        }
+        """;
+
+        var dealToContactAssociationsPayload = """
+        {
+          "results": [
+            {
+              "from": { "id": "deal-3" },
+              "to": [
+                { "toObjectId": "contact-3" }
+              ]
+            }
+          ]
+        }
+        """;
+
+        var client = CreateClient(
+            dealsPayload,
+            contactsPayload.Replace("__KUNDSTATUS__", kundstatus),
+            dealToContactAssociationsPayload: dealToContactAssociationsPayload);
 
         var result = await client.GetFulfilledDealsAsync(null, null, 100);
 
         var deal = Assert.Single(result.Deals);
         Assert.False(deal.IsFulfilled);
+        Assert.Equal(kundstatus, deal.ContactKundstatus);
     }
 
     [Fact]
@@ -308,7 +358,8 @@ public class HubSpotClientStatusTests
               "id": "contact-1",
               "properties": {
                 "saljare": "1234",
-                "forsaljningsdatum": "2026-02-20"
+                "forsaljningsdatum": "2026-02-20",
+                "kundstatus": "Nyregistrerad"
               }
             },
             {
