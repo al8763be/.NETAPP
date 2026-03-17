@@ -282,7 +282,7 @@ ViewData["Title"] = "Contest Administration";
                 <div>
                     <button class="btn btn-info btn-sm me-2" type="button"
                             data-bs-toggle="collapse" data-bs-target="#contest-@contest.Id">
-                        Hantera affärer
+                        Visa leaderboard
                     </button>
 
                     <!-- Delete Contest Button -->
@@ -297,43 +297,19 @@ ViewData["Title"] = "Contest Administration";
                 </div>
             </div>
 
-            <!-- Contest Management (Collapsible) -->
             <div class="collapse" id="contest-@contest.Id">
-                <!-- Add/Update Deals Form -->
                 <div class="bg-light rounded p-3 mb-3">
-                    <h6 class="fw-bold mb-3">Registrera affärer</h6>
-                    <form asp-controller="Social" asp-action="UpdateDeals" method="post">
-                        @Html.AntiForgeryToken()
-                        <input type="hidden" name="contestId" value="@contest.Id">
-                        <div class="row g-3 align-items-end">
-                            <div class="col-md-4">
-                                <label class="form-label">Välj användare</label>
-                                <select name="userId" class="form-select" required>
-                                    <option value="">-- Välj användare --</option>
-                                    @foreach (var user in (List<Microsoft.AspNetCore.Identity.IdentityUser>)ViewBag.AllUsers)
-                                    {
-                                    <option value="@user.Id">@user.UserName</option>
-                                    }
-                                </select>
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label">Antal affärer</label>
-                                <input type="number" name="dealsCount" class="form-control" min="0" required placeholder="0">
-                            </div>
-                            <div class="col-md-5">
-                                <button type="submit" class="btn btn-success">Uppdatera affärer</button>
-                                <button type="button" class="btn btn-info ms-2" onclick="loadContestEntries(@contest.Id)">
-                                    Ladda om leaderboard
-                                </button>
-                            </div>
-                        </div>
-                    </form>
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <h6 class="fw-bold mb-0">Live leaderboard</h6>
+                        <button type="button" class="btn btn-info btn-sm" onclick="loadContestEntries(@contest.Id)">
+                            Ladda live leaderboard
+                        </button>
+                    </div>
                 </div>
 
-                <!-- Contest Leaderboard -->
                 <div class="leaderboard" id="leaderboard-@contest.Id">
                     <h6 class="fw-bold mb-2">Leaderboard</h6>
-                    <div class="text-muted">Klicka "Ladda om leaderboard" för att se aktuella resultat</div>
+                    <div class="text-muted">Klicka "Ladda live leaderboard" för att se aktuella resultat</div>
                 </div>
             </div>
         </div>
@@ -351,7 +327,6 @@ ViewData["Title"] = "Contest Administration";
 
 <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-    // Load contest entries and display leaderboard
     function loadContestEntries(contestId) {
         fetch(`/Social/GetContestEntries?contestId=${contestId}`)
             .then(response => response.json())
@@ -366,7 +341,7 @@ ViewData["Title"] = "Contest Administration";
                 if (data.length === 0) {
                     leaderboard.innerHTML = `
                     <h6 class="fw-bold mb-2">Leaderboard</h6>
-                    <div class="text-muted">Inga affärer registrerade än för denna tävling</div>
+                    <div class="text-muted">Inga affärer hittades för denna tävling</div>
                 `;
                     return;
                 }

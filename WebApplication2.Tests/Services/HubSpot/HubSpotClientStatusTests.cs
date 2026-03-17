@@ -83,7 +83,29 @@ public class HubSpotClientStatusTests
         }
         """;
 
-        var client = CreateClient(dealsPayload, contactsPayload);
+        var dealToContactAssociationsPayload = """
+        {
+          "results": [
+            {
+              "from": { "id": "deal-1" },
+              "to": [
+                { "toObjectId": "contact-1" }
+              ]
+            },
+            {
+              "from": { "id": "deal-2" },
+              "to": [
+                { "toObjectId": "contact-2" }
+              ]
+            }
+          ]
+        }
+        """;
+
+        var client = CreateClient(
+            dealsPayload,
+            contactsPayload,
+            dealToContactAssociationsPayload: dealToContactAssociationsPayload);
 
         var result = await client.GetFulfilledDealsAsync(null, null, 100);
 
@@ -128,7 +150,156 @@ public class HubSpotClientStatusTests
     }
 
     [Fact]
-    public async Task SearchFulfilledDealsByClosedDateRangeAsync_UsesContactDateWindow_AndReturnsOnlyFulfilledDeals()
+    public async Task GetFulfilledDealsAsync_UsesPrimaryAssociatedContact_WhenMultipleContactsExist()
+    {
+        var dealsPayload = """
+        {
+          "results": [
+            {
+              "id": "deal-primary",
+              "properties": {
+                "dealname": "Primary-linked deal",
+                "dealstage": "klar kund",
+                "closedate": "1739980800000",
+                "hs_lastmodifieddate": "1739980800000",
+                "amount": "100",
+                "deal_currency_code": "SEK"
+              }
+            }
+          ]
+        }
+        """;
+
+        var contactsPayload = """
+        {
+          "results": [
+            {
+              "id": "contact-secondary",
+              "properties": {
+                "saljare": "1111",
+                "forsaljningsdatum": "2025-02-20",
+                "kundstatus": "Klar kund"
+              }
+            },
+            {
+              "id": "contact-primary",
+              "properties": {
+                "saljare": "2222",
+                "forsaljningsdatum": "2025-02-21",
+                "kundstatus": "Klar kund"
+              }
+            }
+          ]
+        }
+        """;
+
+        var dealToContactAssociationsPayload = """
+        {
+          "results": [
+            {
+              "from": { "id": "deal-primary" },
+              "to": [
+                {
+                  "toObjectId": "contact-secondary",
+                  "associationTypes": [
+                    { "category": "HUBSPOT_DEFINED", "typeId": 4, "label": null }
+                  ]
+                },
+                {
+                  "toObjectId": "contact-primary",
+                  "associationTypes": [
+                    { "category": "USER_DEFINED", "typeId": 9001, "label": "Primary Contact" }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
+        var client = CreateClient(
+            dealsPayload,
+            contactsPayload,
+            dealToContactAssociationsPayload: dealToContactAssociationsPayload);
+
+        var result = await client.GetFulfilledDealsAsync(null, null, 100);
+
+        var deal = Assert.Single(result.Deals);
+        Assert.Equal("2222", deal.SaljId);
+        Assert.Equal(new DateTime(2025, 2, 21, 0, 0, 0, DateTimeKind.Utc), deal.FulfilledDateUtc);
+        Assert.Equal("Klar kund", deal.ContactKundstatus);
+        Assert.Equal(new[] { "contact-primary" }, deal.ContactIds);
+    }
+
+    [Theory]
+    [InlineData("Avslag")]
+    [InlineData("Annullerat")]
+    [InlineData("Winback")]
+    [InlineData("Säljare")]
+    public async Task GetFulfilledDealsAsync_MarksDealAsNotFulfilled_WhenSelectedContactKundstatusExcludesFulfilledStatus(string kundstatus)
+    {
+        var dealsPayload = """
+        {
+          "results": [
+            {
+              "id": "deal-avslag",
+              "properties": {
+                "dealname": "Rejected after contact mapping",
+                "dealstage": "klar kund",
+                "closedate": "1739980800000",
+                "hs_lastmodifieddate": "1739980800000",
+                "amount": "100",
+                "deal_currency_code": "SEK"
+              }
+            }
+          ]
+        }
+        """;
+
+        var contactsPayload = """
+        {
+          "results": [
+            {
+              "id": "contact-avslag",
+              "properties": {
+                "saljare": "2875",
+                "forsaljningsdatum": "2025-02-20",
+                "kundstatus": "__KUNDSTATUS__"
+              }
+            }
+          ]
+        }
+        """;
+
+        var dealToContactAssociationsPayload = """
+        {
+          "results": [
+            {
+              "from": { "id": "deal-avslag" },
+              "to": [
+                { "toObjectId": "contact-avslag" }
+              ]
+            }
+          ]
+        }
+        """;
+
+        var client = CreateClient(
+            dealsPayload,
+            contactsPayload.Replace("__KUNDSTATUS__", kundstatus),
+            dealToContactAssociationsPayload: dealToContactAssociationsPayload);
+
+        var result = await client.GetFulfilledDealsAsync(null, null, 100);
+
+        var deal = Assert.Single(result.Deals);
+        Assert.False(deal.IsFulfilled);
+        Assert.Equal(kundstatus, deal.ContactKundstatus);
+        Assert.Equal("2875", deal.SaljId);
+        Assert.Equal(new DateTime(2025, 2, 20, 0, 0, 0, DateTimeKind.Utc), deal.FulfilledDateUtc);
+    }
+
+    [Fact]
+    public async Task SearchFulfilledDealsByClosedDateRangeAsync_UsesContactDateWindow_AndRetainsAllowedLostDealsOnly()
     {
         var contactsPayload = """
         {
@@ -144,7 +315,16 @@ public class HubSpotClientStatusTests
               "id": "contact-2",
               "properties": {
                 "saljare": "5678",
-                "forsaljningsdatum": "2026-02-21"
+                "forsaljningsdatum": "2026-02-21",
+                "kundstatus": "Annullerat"
+              }
+            },
+            {
+              "id": "contact-3",
+              "properties": {
+                "saljare": "9999",
+                "forsaljningsdatum": "2026-02-22",
+                "kundstatus": "Annullerad"
               }
             }
           ]
@@ -161,6 +341,10 @@ public class HubSpotClientStatusTests
             {
               "from": { "id": "contact-2" },
               "to": [ { "toObjectId": 9002 } ]
+            },
+            {
+              "from": { "id": "contact-3" },
+              "to": [ { "toObjectId": 9003 } ]
             }
           ]
         }
@@ -184,7 +368,7 @@ public class HubSpotClientStatusTests
             {
               "id": "9002",
               "properties": {
-                "dealname": "Lost deal",
+                "dealname": "Cancelled retained deal",
                 "dealstage": "3832342762",
                 "closedate": "1739980800000",
                 "hs_lastmodifieddate": "1739980800000",
@@ -192,6 +376,37 @@ public class HubSpotClientStatusTests
                 "deal_currency_code": "SEK",
                 "saljarprovision": "5.0"
               }
+            },
+            {
+              "id": "9003",
+              "properties": {
+                "dealname": "Cancelled excluded deal",
+                "dealstage": "3832342762",
+                "closedate": "1739980800000",
+                "hs_lastmodifieddate": "1739980800000",
+                "amount": "75",
+                "deal_currency_code": "SEK",
+                "saljarprovision": "7.5"
+              }
+            }
+          ]
+        }
+        """;
+
+        var dealToContactAssociationsPayload = """
+        {
+          "results": [
+            {
+              "from": { "id": "9001" },
+              "to": [ { "toObjectId": "contact-1" } ]
+            },
+            {
+              "from": { "id": "9002" },
+              "to": [ { "toObjectId": "contact-2" } ]
+            },
+            {
+              "from": { "id": "9003" },
+              "to": [ { "toObjectId": "contact-3" } ]
             }
           ]
         }
@@ -220,7 +435,8 @@ public class HubSpotClientStatusTests
             contactsPayload: contactsPayload,
             associationsPayload: associationsPayload,
             dealsBatchPayload: dealsBatchPayload,
-            pipelinePayload: pipelinePayload);
+            pipelinePayload: pipelinePayload,
+            dealToContactAssociationsPayload: dealToContactAssociationsPayload);
 
         var result = await client.SearchFulfilledDealsByClosedDateRangeAsync(
             new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc),
@@ -228,11 +444,12 @@ public class HubSpotClientStatusTests
             afterCursor: null,
             pageSize: 100);
 
-        var deal = Assert.Single(result.Deals);
-        Assert.Equal("9001", deal.ExternalDealId);
-        Assert.Equal("1234", deal.SaljId);
-        Assert.Equal(new DateTime(2026, 2, 20, 0, 0, 0, DateTimeKind.Utc), deal.FulfilledDateUtc);
-        Assert.True(deal.IsFulfilled);
+        Assert.Equal(new[] { "9001", "9002" }, result.Deals.Select(d => d.ExternalDealId).ToArray());
+        Assert.Equal("1234", result.Deals[0].SaljId);
+        Assert.True(result.Deals[0].IsFulfilled);
+        Assert.Equal("5678", result.Deals[1].SaljId);
+        Assert.False(result.Deals[1].IsFulfilled);
+        Assert.Equal("Annullerat", result.Deals[1].ContactKundstatus);
     }
 
     private static HubSpotClient CreateClient(
@@ -240,7 +457,8 @@ public class HubSpotClientStatusTests
         string contactsPayload,
         string? associationsPayload = null,
         string? dealsBatchPayload = null,
-        string? pipelinePayload = null)
+        string? pipelinePayload = null,
+        string? dealToContactAssociationsPayload = null)
     {
         var options = Options.Create(new HubSpotOptions
         {
@@ -273,7 +491,8 @@ public class HubSpotClientStatusTests
             contactsPayload,
             associationsPayload,
             dealsBatchPayload,
-            pipelinePayload))
+            pipelinePayload,
+            dealToContactAssociationsPayload))
         {
             BaseAddress = new Uri("https://api.hubapi.com")
         };
@@ -286,7 +505,8 @@ public class HubSpotClientStatusTests
         string contactsPayload,
         string? associationsPayload = null,
         string? dealsBatchPayload = null,
-        string? pipelinePayload = null) : HttpMessageHandler
+        string? pipelinePayload = null,
+        string? dealToContactAssociationsPayload = null) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -308,6 +528,10 @@ public class HubSpotClientStatusTests
             else if (request.Method == HttpMethod.Post && path == "/crm/v4/associations/contacts/deals/batch/read")
             {
                 payload = associationsPayload ?? """{"results":[]}""";
+            }
+            else if (request.Method == HttpMethod.Post && path == "/crm/v4/associations/deals/contacts/batch/read")
+            {
+                payload = dealToContactAssociationsPayload ?? """{"results":[]}""";
             }
             else if (request.Method == HttpMethod.Post && path == "/crm/v3/objects/deals/batch/read")
             {

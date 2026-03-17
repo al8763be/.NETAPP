@@ -112,6 +112,7 @@ namespace WebApplication2.Controllers
             var groupedDeals = await _context.HubSpotDealImports
                 .AsNoTracking()
                 .Where(d =>
+                    d.IsFulfilled &&
                     d.FulfilledDateUtc >= contestStartUtc &&
                     d.FulfilledDateUtc < contestEndExclusiveUtc &&
                     !string.IsNullOrWhiteSpace(d.SaljId))
@@ -991,9 +992,6 @@ namespace WebApplication2.Controllers
                 {
                     DecodeHtmlEntities(contest);
                 }
-
-                var allUsers = await _userManager.Users.ToListAsync();
-                ViewBag.AllUsers = allUsers;
 
                 return View(contests);
             }

@@ -21,7 +21,6 @@ namespace WebApplication2.Data
         public DbSet<ContestEntry> ContestEntries { get; set; }
         public DbSet<EmployeeProfile> EmployeeProfiles { get; set; }
         public DbSet<HubSpotDealImport> HubSpotDealImports { get; set; }
-        public DbSet<HubSpotOwnerMapping> HubSpotOwnerMappings { get; set; }
         public DbSet<HubSpotSyncState> HubSpotSyncStates { get; set; }
         public DbSet<HubSpotSyncRun> HubSpotSyncRuns { get; set; }
 
@@ -119,10 +118,10 @@ namespace WebApplication2.Data
             modelBuilder.Entity<HubSpotDealImport>(entity =>
             {
                 entity.Property(d => d.ExternalDealId).HasMaxLength(128).IsRequired();
-                entity.Property(d => d.HubSpotOwnerId).HasMaxLength(64);
                 entity.Property(d => d.SaljId).HasMaxLength(32);
                 entity.Property(d => d.OwnerEmail).HasMaxLength(256).IsRequired();
                 entity.Property(d => d.OwnerUserId).HasMaxLength(450);
+                entity.Property(d => d.IsFulfilled).HasDefaultValue(true);
                 entity.Property(d => d.DealName).HasMaxLength(512);
                 entity.Property(d => d.Amount).HasPrecision(18, 2);
                 entity.Property(d => d.SellerProvision).HasPrecision(18, 2);
@@ -136,40 +135,11 @@ namespace WebApplication2.Data
 
                 entity.HasIndex(d => d.ExternalDealId).IsUnique();
                 entity.HasIndex(d => new { d.OwnerUserId, d.FulfilledDateUtc });
-                entity.HasIndex(d => new { d.HubSpotOwnerId, d.FulfilledDateUtc });
                 entity.HasIndex(d => new { d.SaljId, d.FulfilledDateUtc });
 
                 entity.HasOne(d => d.OwnerUser)
                     .WithMany()
                     .HasForeignKey(d => d.OwnerUserId)
-                    .OnDelete(DeleteBehavior.SetNull);
-
-                entity.HasOne(d => d.HubSpotOwner)
-                    .WithMany(o => o.FulfilledDeals)
-                    .HasForeignKey(d => d.HubSpotOwnerId)
-                    .HasPrincipalKey(o => o.HubSpotOwnerId)
-                    .OnDelete(DeleteBehavior.NoAction);
-            });
-
-            modelBuilder.Entity<HubSpotOwnerMapping>(entity =>
-            {
-                entity.Property(o => o.HubSpotOwnerId).HasMaxLength(64).IsRequired();
-                entity.Property(o => o.HubSpotOwnerEmail).HasMaxLength(256);
-                entity.Property(o => o.HubSpotFirstName).HasMaxLength(128);
-                entity.Property(o => o.HubSpotLastName).HasMaxLength(128);
-                entity.Property(o => o.HubSpotPrimaryTeamName).HasMaxLength(128);
-                entity.Property(o => o.HubSpotTeamNames).HasMaxLength(1000);
-                entity.Property(o => o.OwnerUserId).HasMaxLength(450);
-                entity.Property(o => o.OwnerUsername).HasMaxLength(64);
-
-                entity.HasIndex(o => o.HubSpotOwnerId).IsUnique();
-                entity.HasIndex(o => o.OwnerUserId)
-                    .IsUnique()
-                    .HasFilter("[OwnerUserId] IS NOT NULL");
-
-                entity.HasOne(o => o.OwnerUser)
-                    .WithMany()
-                    .HasForeignKey(o => o.OwnerUserId)
                     .OnDelete(DeleteBehavior.SetNull);
             });
 

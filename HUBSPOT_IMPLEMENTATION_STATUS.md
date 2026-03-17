@@ -1,166 +1,125 @@
 # HubSpot Integration Status (Point of Truth)
 
-Last updated: 2026-03-04
+Last updated: 2026-03-17
 
-## Scope and Priority
+## Current Source Of Truth
 
-This status is now aligned to the 3 original instructions only:
+- Deal ownership is determined exclusively by contact `saljid`.
+- HubSpot owner mapping is no longer part of the live sync strategy.
+- The synced seller for a deal comes from the first primary associated contact.
+- If no primary contact association is marked, the first associated contact is used as fallback.
 
-1. Create mapping/data table for HubSpot owner information (linked to local user identity).
-2. Add tests to validate that owner/deal mapping information is received and stored correctly.
-3. Expand `Min profil` to show stored HubSpot owner info + current month fulfilled sales + estimated total.
+## Current Behavior
 
-Admin UI for manual mapping is explicitly deferred until after these 3 parts are completed.
-
-## Current Diagnosis
-
-- `POST /Social/SyncHubSpotDeals` returning `302` is expected (PRG redirect), not a transport failure.
-- Sync has been running, but many deals were skipped due to unresolved owner-to-local-user mapping.
-- Deals frequently contain `hubspot_owner_id`; deal-level owner email may be missing.
-
-## Implemented So Far
-
-### Part 1: Owner mapping/data table
+### Deal fetching and attribution
 Status: Implemented
 
-Delivered:
-- New model: `Models/HubSpotOwnerMapping.cs`
-- DbSet and configuration in `Data/STLForumContext.cs`
-  - unique `HubSpotOwnerId`
-  - optional FK to `AspNetUsers` (`OwnerUserId`)
-  - username snapshot (`OwnerUsername`)
-- Migration created/applied:
-  - `Migrations/20260219122732_AddHubSpotOwnerMappings.cs`
-- Sync service now:
-  - resolves owner details by `hubspot_owner_id`
-  - upserts owner metadata into `HubSpotOwnerMappings`
-  - attempts local-user resolution via persisted mapping first, then email fallback
+- Incremental sync fetches deals from HubSpot and enriches them with contact and line item data.
+- Rebuild/current-window sync fetches contacts by `forsaljningsdatum`, resolves associated deals, and then enriches those deals from the selected associated contact.
+- Contact enrichment is based on a single selected associated contact per deal.
+- `FulfilledDateUtc` is taken from the selected associated contact's `forsaljningsdatum`.
+- Imported deal rows are stored in `HubSpotDealImports`.
+- Local user mapping is resolved directly from `SaljId` to the app username/user.
 
 Related files:
-- `Services/HubSpot/IHubSpotClient.cs`
 - `Services/HubSpot/HubSpotClient.cs`
 - `Services/HubSpot/HubSpotSyncService.cs`
-- `Services/HubSpot/HubSpotOptions.cs`
-- `appsettings.json`
+- `Services/HubSpot/HubSpotMappingService.cs`
+- `Models/HubSpotDealImport.cs`
 
-### Supporting reliability fixes
+### Fulfilled and lost deal retention
 Status: Implemented
 
-- Added HubSpot core tables migration baseline:
-  - `Migrations/20260219105408_AddHubSpotTables.cs`
-- Development startup now loads `.env.dev`:
-  - `Program.cs`
-- Explicit decimal precision for imported deal amount:
-  - `Data/STLForumContext.cs`
-
-## Part 2: Tests
-Status: Implemented and validated
-
-Delivered:
-- New test project:
-  - `WebApplication2.Tests/WebApplication2.Tests.csproj`
-- Test helpers:
-  - `WebApplication2.Tests/Helpers/TestIdentityEnvironment.cs`
-  - `WebApplication2.Tests/Helpers/FakeHubSpotClient.cs`
-- HubSpot sync coverage:
-  - `WebApplication2.Tests/Services/HubSpot/HubSpotSyncServiceTests.cs`
-  - owner lookup + owner mapping persistence
-  - resolution precedence (stored mapping before email fallback)
-  - email fallback mapping creation
-  - unresolved owner skip behavior
-  - idempotent upsert behavior (import then update on same external id)
-- Profile aggregation coverage:
-  - `WebApplication2.Tests/Controllers/HomeControllerProfileTests.cs`
-  - current month filtering
-  - fulfilled deals count
-  - amount sum behavior with nullable amounts
-  - owner mapping data exposure in profile model
-
-Validation note:
-- Test suite was executed successfully in a network-enabled environment.
-- Example command:
-  - `dotnet test WebApplication2.Tests/WebApplication2.Tests.csproj`
-
-## Part 3: Profile expansion
-Status: Implemented (initial)
-
-Delivered in `Min profil`:
-- HubSpot owner section (id, email, display name, status if mapped).
-- Current month fulfilled deals count.
-- Estimated total monthly amount (sum of imported amounts).
-- Total monthly provision (sum of imported `saljarprovision` values).
-- Current month deal list.
-- Per-deal provision column in the monthly deal table.
+- Fulfilled deals are stored when the resolved HubSpot deal stage matches the configured fulfilled statuses.
+- After contact enrichment, the selected contact `kundstatus` is authoritative for fulfillment overrides.
+- Deals are forced to `IsFulfilled = false` when the selected contact `kundstatus` is one of:
+  - `avslag`
+  - `annullerat`
+  - `winback`
+  - `säljare`
+- Lost deals are also retained for profile/reporting when contact `kundstatus` is one of:
+  - `annullerat`
+  - `winback`
+  - `säljare`
+- `annullerad` is not treated as a retained lost status.
+- `avslag` is not retained and is removed/skipped.
+- Other non-fulfilled deals are removed/skipped.
+- Rebuild/current-window sync now preserves retained lost deals as well as fulfilled deals.
+- Every sync run also performs a cleanup sweep of stored rows:
+  - retained lost statuses incorrectly stored as fulfilled are demoted to `IsFulfilled = false`
+  - `avslag` rows incorrectly stored as fulfilled are removed
 
 Related files:
-- `Models/UserProfileViewModel.cs`
+- `Models/HubSpotDealStatus.cs`
+- `Services/HubSpot/HubSpotClient.cs`
+- `Services/HubSpot/HubSpotSyncService.cs`
+
+### Leaderboard and contest behavior
+Status: Implemented
+
+- Contest leaderboards are built live from `HubSpotDealImports`.
+- Only deals with `IsFulfilled = true` contribute to contest rankings.
+- Grouping is done by `SaljId`.
+- Display labels come from local `EmployeeProfile` data where available.
+- Cancelled/lost deals do not affect leaderboard counts.
+
+Related files:
+- `Controllers/SocialController.cs`
+- `Models/ContestEntry.cs`
+- `Views/Social/Index.cshtml`
+- `Views/Social/ContestLeaderboard.cshtml`
+
+### Profile behavior
+Status: Implemented
+
+- `/Home/Profile` filters deals by the logged-in user’s username matched against `SaljId`.
+- The page supports current month and previous month views.
+- The fulfilled section shows:
+  - fulfilled deal count
+  - fulfilled amount total
+  - deal rows with contact details
+- The lost section shows retained lost deals for the same selected month.
+- Row expansion shows deal id, deal name, and imported line items.
+
+Related files:
 - `Controllers/HomeController.cs`
+- `Models/UserProfileViewModel.cs`
 - `Views/Home/Profile.cshtml`
+- `Views/Home/_HubSpotDealTable.cshtml`
 
-## Post-scope delivery: Seller provision data pipeline and dev seeding
+## Tests
+Status: Implemented and validated
 
-Status: Implemented
+- HubSpot sync tests cover:
+  - direct `SaljId` ownership mapping
+  - skipping deals without valid `SaljId`
+  - idempotent upserts
+  - redacted/non-fulfilled removal
+  - retained lost statuses
+  - fulfillment override for `avslag`, `annullerat`, `winback`, and `säljare`
+  - stale-row cleanup/demotion for excluded fulfilled statuses
+  - excluded `annullerad`
+  - rebuild retention of fulfilled and allowed lost deals
+- HubSpot client tests cover:
+  - fulfilled-stage resolution
+  - primary associated contact selection
+  - search-window inclusion of fulfilled and allowed lost deals
+- Profile tests cover:
+  - current and previous month filtering
+  - fulfilled aggregation
+  - lost-deal rendering set for the selected month
 
-Delivered:
-- HubSpot deal parsing now reads `saljarprovision` via configurable mapping key:
-  - `HubSpot:ProvisionProperty` (default `saljarprovision`) in `appsettings.json`
-  - `Services/HubSpot/HubSpotOptions.cs`
-  - `Services/HubSpot/HubSpotClient.cs`
-  - `Services/HubSpot/IHubSpotClient.cs`
-- Imported deal storage now persists seller provision:
-  - new `HubSpotDealImports.SellerProvision` (`decimal(18,2)`)
-  - migration: `Migrations/20260222095205_AddSellerProvisionToHubSpotDeals.cs`
-  - EF model/config: `Models/HubSpotDealImport.cs`, `Data/STLForumContext.cs`
-  - sync upsert mapping: `Services/HubSpot/HubSpotSyncService.cs`
-- Profile calculations now include:
-  - total monthly provision
-  - provision per deal row
-  - files: `Controllers/HomeController.cs`, `Models/UserProfileViewModel.cs`, `Views/Home/Profile.cshtml`
-- Dev superadmin preview seed script updated:
-  - `scripts/seed_superadmin_preview_deals.sh`
-  - seeds `SellerProvision` values (`--start-provision`, `--step-provision`)
-  - seed mode now rewrites existing stored deals for the target superadmin (`OwnerUserId`) before inserting preview rows
+Validated command:
+- `dotnet test WebApplication2.Tests/WebApplication2.Tests.csproj --filter "FullyQualifiedName~HubSpot|FullyQualifiedName~HomeControllerProfileTests"`
 
-## Deferred (Not in current scope)
+## Removed From Live Strategy
 
-- Admin UI for manual owner mapping is currently removed.
+- `HubSpotOwnerMappings`
+- `HubSpotDealImports.HubSpotOwnerId`
+- HubSpot owner lookup as a source of local-user resolution
+- Owner/team fallback labeling for leaderboard identity
 
-## Post-scope delivery: Fulfilled-deals leaderboard source
+## Schema Change
 
-Status: Implemented
-
-Delivered:
-- Fulfilled HubSpot deals are persisted as leaderboard source rows in `HubSpotDealImports`.
-- `HubSpotDealImports.HubSpotOwnerId` now has an FK to `HubSpotOwnerMappings.HubSpotOwnerId`.
-- New migration:
-  - `Migrations/20260219203000_AddHubSpotOwnerForeignKeyToDeals.cs`
-  - backfills missing owner mapping rows for historical fulfilled deals before adding FK.
-- Sync rules in `HubSpotSyncService`:
-  - only fulfilled deals are stored,
-  - deals that are later redacted/non-fulfilled are removed,
-  - deals missing `hubspot_owner_id` are skipped.
-
-Leaderboard behavior:
-- Social index contest cards (top 3) are built live from fulfilled HubSpot deals.
-- Social search contest cards (top 3) are built live from fulfilled HubSpot deals.
-- Full contest leaderboard page (`/Social/ContestLeaderboard/{id}`) is built live from fulfilled HubSpot deals.
-- Display labels are resolved from local mapped user if present, otherwise owner mapping/name/email fallback.
-- Primary HubSpot team name is included in leaderboard labels.
-
-## Post-scope delivery: Profile deal detail expansion prototype
-
-Status: Implemented
-
-Delivered:
-- `/Profile` monthly deal table now includes per-row contact details:
-  - contact first name
-  - contact phone number
-  - contact kundstatus
-- Row-click detail prototype added in `/Profile`:
-  - each deal row toggles a detail section
-  - detail section shows deal id/name and associated line items
-- HubSpot sync and persistence expanded so these values are saved on import:
-  - `HubSpotDealImports.ContactFirstName`
-  - `HubSpotDealImports.ContactPhoneNumber`
-  - `HubSpotDealImports.ContactKundstatus`
-  - `HubSpotDealImports.LineItemsJson`
+- Migration added to remove obsolete owner-mapping schema:
+  - `Migrations/20260317161219_RemoveHubSpotOwnerMappingStrategy.cs`

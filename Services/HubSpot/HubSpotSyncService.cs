@@ -108,6 +108,7 @@ namespace WebApplication2.Services.HubSpot
                 run.DealsUpdated += activeContestSync.Updated;
                 run.DealsSkipped += activeContestSync.Skipped;
 
+                await RemoveExcludedFulfilledDealsAsync(cancellationToken);
                 await RecalculateActiveContestEntriesAsync(cancellationToken);
                 run.Status = "Succeeded";
                 run.FinishedUtc = DateTime.UtcNow;
@@ -231,6 +232,7 @@ namespace WebApplication2.Services.HubSpot
                     }
                 }
 
+                await RemoveExcludedFulfilledDealsAsync(cancellationToken);
                 await RecalculateActiveContestEntriesAsync(cancellationToken);
 
                 var syncState = await _context.HubSpotSyncStates
@@ -294,9 +296,10 @@ namespace WebApplication2.Services.HubSpot
             var existing = await _context.HubSpotDealImports
                 .FirstOrDefaultAsync(d => d.ExternalDealId == deal.ExternalDealId, cancellationToken);
 
-            // Deal was previously fulfilled but has now moved out of fulfilled state.
-            // Remove it so rankings are recalculated from only currently fulfilled deals.
-            if (!deal.IsFulfilled || !deal.FulfilledDateUtc.HasValue)
+            var contactKundstatus = NormalizeOptionalText(deal.ContactKundstatus, 128);
+            var shouldRetainLostDeal = HubSpotDealStatus.IsLostKundstatus(contactKundstatus);
+
+            if ((!deal.IsFulfilled && !shouldRetainLostDeal) || !deal.FulfilledDateUtc.HasValue)
             {
                 if (existing == null)
                 {
@@ -318,7 +321,6 @@ namespace WebApplication2.Services.HubSpot
             var normalizedOwnerEmail = deal.OwnerEmail?.Trim() ?? string.Empty;
             var contactFirstName = NormalizeOptionalText(deal.ContactFirstName, 128);
             var contactPhoneNumber = NormalizeOptionalText(deal.ContactPhoneNumber, 64);
-            var contactKundstatus = NormalizeOptionalText(deal.ContactKundstatus, 128);
             var lineItemsJson = SerializeLineItems(deal.LineItems);
 
             if (existing == null)
@@ -327,10 +329,10 @@ namespace WebApplication2.Services.HubSpot
                 {
                     ExternalDealId = deal.ExternalDealId,
                     DealName = deal.DealName,
-                    HubSpotOwnerId = null,
                     SaljId = normalizedSaljId,
                     OwnerEmail = normalizedOwnerEmail,
                     OwnerUserId = ownerUser?.Id,
+                    IsFulfilled = deal.IsFulfilled,
                     FulfilledDateUtc = deal.FulfilledDateUtc.Value,
                     Amount = deal.Amount,
                     SellerProvision = deal.SellerProvision,
@@ -351,10 +353,10 @@ namespace WebApplication2.Services.HubSpot
             }
 
             existing.DealName = deal.DealName;
-            existing.HubSpotOwnerId = null;
             existing.SaljId = normalizedSaljId;
             existing.OwnerEmail = normalizedOwnerEmail;
             existing.OwnerUserId = ownerUser?.Id;
+            existing.IsFulfilled = deal.IsFulfilled;
             existing.FulfilledDateUtc = deal.FulfilledDateUtc.Value;
             existing.Amount = deal.Amount;
             existing.SellerProvision = deal.SellerProvision;
@@ -509,12 +511,6 @@ namespace WebApplication2.Services.HubSpot
                 _context.HubSpotDealImports.RemoveRange(dealRows);
             }
 
-            var ownerMappings = await _context.HubSpotOwnerMappings.ToListAsync(cancellationToken);
-            if (ownerMappings.Count > 0)
-            {
-                _context.HubSpotOwnerMappings.RemoveRange(ownerMappings);
-            }
-
             var contestEntries = await _context.ContestEntries.ToListAsync(cancellationToken);
             if (contestEntries.Count > 0)
             {
@@ -522,6 +518,50 @@ namespace WebApplication2.Services.HubSpot
             }
 
             await _context.SaveChangesAsync(cancellationToken);
+        }
+
+        private async Task RemoveExcludedFulfilledDealsAsync(CancellationToken cancellationToken)
+        {
+            var staleDeals = await _context.HubSpotDealImports
+                .Where(d =>
+                    d.IsFulfilled &&
+                    d.ContactKundstatus != null &&
+                    (
+                        d.ContactKundstatus.Trim().ToLower() == "avslag" ||
+                        d.ContactKundstatus.Trim().ToLower() == "annullerat" ||
+                        d.ContactKundstatus.Trim().ToLower() == "winback" ||
+                        d.ContactKundstatus.Trim().ToLower() == "saljare" ||
+                        d.ContactKundstatus.Trim().ToLower() == "säljare"))
+                .ToListAsync(cancellationToken);
+
+            if (staleDeals.Count == 0)
+            {
+                return;
+            }
+
+            var dealsToRemove = staleDeals
+                .Where(d => !HubSpotDealStatus.IsLostKundstatus(d.ContactKundstatus))
+                .ToList();
+            var dealsToDemote = staleDeals
+                .Where(d => HubSpotDealStatus.IsLostKundstatus(d.ContactKundstatus))
+                .ToList();
+
+            foreach (var deal in dealsToDemote)
+            {
+                deal.IsFulfilled = false;
+            }
+
+            if (dealsToRemove.Count > 0)
+            {
+                _context.HubSpotDealImports.RemoveRange(dealsToRemove);
+            }
+
+            await _context.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation(
+                "Normalized {DemotedCount} HubSpot deals to lost and removed {RemovedCount} HubSpot deals with excluded fulfilled kundstatus.",
+                dealsToDemote.Count,
+                dealsToRemove.Count);
         }
 
         private async Task RecalculateActiveContestEntriesAsync(CancellationToken cancellationToken)
@@ -554,6 +594,7 @@ namespace WebApplication2.Services.HubSpot
 
                 var groupedDeals = await _context.HubSpotDealImports
                     .Where(d =>
+                        d.IsFulfilled &&
                         d.FulfilledDateUtc >= contestStartUtc &&
                         d.FulfilledDateUtc <= contestEndUtc &&
                         !string.IsNullOrWhiteSpace(d.SaljId))

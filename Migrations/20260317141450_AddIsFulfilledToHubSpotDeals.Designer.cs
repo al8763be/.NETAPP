@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using WebApplication2.Data;
 
@@ -11,9 +12,11 @@ using WebApplication2.Data;
 namespace WebApplication2.Migrations
 {
     [DbContext(typeof(STLForumContext))]
-    partial class STLForumContextModelSnapshot : ModelSnapshot
+    [Migration("20260317141450_AddIsFulfilledToHubSpotDeals")]
+    partial class AddIsFulfilledToHubSpotDeals
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -430,6 +433,10 @@ namespace WebApplication2.Migrations
                     b.Property<DateTime?>("HubSpotLastModifiedUtc")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("HubSpotOwnerId")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
                     b.Property<bool>("IsFulfilled")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bit")
@@ -467,11 +474,75 @@ namespace WebApplication2.Migrations
                     b.HasIndex("ExternalDealId")
                         .IsUnique();
 
+                    b.HasIndex("HubSpotOwnerId", "FulfilledDateUtc");
+
                     b.HasIndex("OwnerUserId", "FulfilledDateUtc");
 
                     b.HasIndex("SaljId", "FulfilledDateUtc");
 
                     b.ToTable("HubSpotDealImports");
+                });
+
+            modelBuilder.Entity("WebApplication2.Models.HubSpotOwnerMapping", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("HubSpotFirstName")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("HubSpotLastName")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("HubSpotOwnerEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("HubSpotOwnerId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("HubSpotPrimaryTeamName")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("HubSpotTeamNames")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<bool>("IsArchived")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("LastOwnerSyncUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("LastSeenUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("OwnerUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("OwnerUsername")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("HubSpotOwnerId")
+                        .IsUnique();
+
+                    b.HasIndex("OwnerUserId")
+                        .IsUnique()
+                        .HasFilter("[OwnerUserId] IS NOT NULL");
+
+                    b.ToTable("HubSpotOwnerMappings");
                 });
 
             modelBuilder.Entity("WebApplication2.Models.HubSpotSyncRun", b =>
@@ -735,6 +806,24 @@ namespace WebApplication2.Migrations
 
             modelBuilder.Entity("WebApplication2.Models.HubSpotDealImport", b =>
                 {
+                    b.HasOne("WebApplication2.Models.HubSpotOwnerMapping", "HubSpotOwner")
+                        .WithMany("FulfilledDeals")
+                        .HasForeignKey("HubSpotOwnerId")
+                        .HasPrincipalKey("HubSpotOwnerId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityUser", "OwnerUser")
+                        .WithMany()
+                        .HasForeignKey("OwnerUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("HubSpotOwner");
+
+                    b.Navigation("OwnerUser");
+                });
+
+            modelBuilder.Entity("WebApplication2.Models.HubSpotOwnerMapping", b =>
+                {
                     b.HasOne("Microsoft.AspNetCore.Identity.IdentityUser", "OwnerUser")
                         .WithMany()
                         .HasForeignKey("OwnerUserId")
@@ -765,6 +854,11 @@ namespace WebApplication2.Migrations
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("WebApplication2.Models.HubSpotOwnerMapping", b =>
+                {
+                    b.Navigation("FulfilledDeals");
                 });
 
             modelBuilder.Entity("WebApplication2.Models.Question", b =>

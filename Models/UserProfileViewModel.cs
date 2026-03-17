@@ -2,6 +2,9 @@ namespace WebApplication2.Models
 {
     public class UserProfileViewModel
     {
+        public const int CurrentMonthOffset = 0;
+        public const int PreviousMonthOffset = -1;
+
         public string UserId { get; set; } = string.Empty;
         public string Username { get; set; } = string.Empty;
         public string Email { get; set; } = string.Empty;
@@ -12,17 +15,16 @@ namespace WebApplication2.Models
         public int AnswersCount { get; set; }
         public int LikesGivenCount { get; set; }
         public int ContestEntriesCount { get; set; }
+        public int SelectedMonthOffset { get; set; }
+        public string SelectedPeriodLabel { get; set; } = string.Empty;
+        public bool IsCurrentMonthSelected => SelectedMonthOffset == CurrentMonthOffset;
+        public bool IsPreviousMonthSelected => SelectedMonthOffset == PreviousMonthOffset;
 
-        public string? HubSpotOwnerId { get; set; }
-        public string? HubSpotOwnerEmail { get; set; }
-        public string? HubSpotOwnerDisplayName { get; set; }
-        public bool? HubSpotOwnerArchived { get; set; }
-        public bool HasHubSpotOwnerMapping => !string.IsNullOrWhiteSpace(HubSpotOwnerId);
-
-        public int CurrentMonthFulfilledDealsCount { get; set; }
-        public decimal CurrentMonthFulfilledDealsAmount { get; set; }
-        public decimal CurrentMonthFulfilledDealsProvision { get; set; }
-        public List<UserHubSpotDealViewModel> CurrentMonthDeals { get; set; } = new();
+        public int SelectedPeriodFulfilledDealsCount { get; set; }
+        public decimal SelectedPeriodFulfilledDealsAmount { get; set; }
+        public decimal SelectedPeriodFulfilledDealsProvision { get; set; }
+        public List<UserHubSpotDealViewModel> SelectedPeriodDeals { get; set; } = new();
+        public List<UserHubSpotDealViewModel> SelectedPeriodLostDeals { get; set; } = new();
     }
 
     public class UserHubSpotDealViewModel
@@ -47,5 +49,12 @@ namespace WebApplication2.Models
         public decimal? Price { get; set; }
         public decimal? Amount { get; set; }
         public string Sku { get; set; } = string.Empty;
+    }
+
+    public class UserHubSpotDealTableViewModel
+    {
+        public string DetailRowPrefix { get; set; } = string.Empty;
+        public string EmptyMessage { get; set; } = string.Empty;
+        public List<UserHubSpotDealViewModel> Deals { get; set; } = new();
     }
 }

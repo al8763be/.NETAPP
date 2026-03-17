@@ -14,10 +14,6 @@ namespace WebApplication2.Services.HubSpot
             string? afterCursor,
             int pageSize,
             CancellationToken cancellationToken = default);
-
-        Task<HubSpotOwnerRecord?> GetOwnerByOwnerIdAsync(
-            string ownerId,
-            CancellationToken cancellationToken = default);
     }
 
     public class HubSpotDealRecord
@@ -57,16 +53,5 @@ namespace WebApplication2.Services.HubSpot
         public decimal? Price { get; set; }
         public decimal? Amount { get; set; }
         public string? Sku { get; set; }
-    }
-
-    public class HubSpotOwnerRecord
-    {
-        public string OwnerId { get; set; } = string.Empty;
-        public string? Email { get; set; }
-        public string? FirstName { get; set; }
-        public string? LastName { get; set; }
-        public bool IsArchived { get; set; }
-        public string? PrimaryTeamName { get; set; }
-        public List<string> TeamNames { get; set; } = new();
     }
 }

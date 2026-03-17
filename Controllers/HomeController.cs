@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Mvc.Rendering;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Text.Json;
 
@@ -595,7 +596,7 @@ namespace WebApplication2.Controllers
 
         [HttpGet]
         [Authorize]
-        public async Task<IActionResult> Profile()
+        public async Task<IActionResult> Profile(int monthOffset = UserProfileViewModel.CurrentMonthOffset)
         {
             var user = await _userManager.GetUserAsync(User);
             if (user == null)
@@ -605,11 +606,15 @@ namespace WebApplication2.Controllers
 
             var roles = await _userManager.GetRolesAsync(user);
             var username = (user.UserName ?? string.Empty).Trim();
+            var selectedMonthOffset = monthOffset == UserProfileViewModel.PreviousMonthOffset
+                ? UserProfileViewModel.PreviousMonthOffset
+                : UserProfileViewModel.CurrentMonthOffset;
 
-            var monthStartUtc = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+            var selectedMonthUtc = DateTime.UtcNow.AddMonths(selectedMonthOffset);
+            var monthStartUtc = new DateTime(selectedMonthUtc.Year, selectedMonthUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc);
             var monthEndUtc = monthStartUtc.AddMonths(1);
 
-            var currentMonthDealRows = await _context.HubSpotDealImports
+            var periodDealRows = await _context.HubSpotDealImports
                 .AsNoTracking()
                 .Where(d =>
                     d.SaljId == username &&
@@ -618,20 +623,14 @@ namespace WebApplication2.Controllers
                 .OrderByDescending(d => d.FulfilledDateUtc)
                 .ToListAsync();
 
-            var currentMonthDeals = currentMonthDealRows
-                .Select(d => new UserHubSpotDealViewModel
-                {
-                    ExternalDealId = d.ExternalDealId,
-                    DealName = d.DealName ?? string.Empty,
-                    FulfilledDateUtc = d.FulfilledDateUtc,
-                    Amount = d.Amount,
-                    SellerProvision = d.SellerProvision,
-                    CurrencyCode = d.CurrencyCode ?? string.Empty,
-                    ContactFirstName = d.ContactFirstName ?? string.Empty,
-                    ContactPhoneNumber = d.ContactPhoneNumber ?? string.Empty,
-                    ContactKundstatus = d.ContactKundstatus ?? string.Empty,
-                    LineItems = ParseLineItemsJson(d.LineItemsJson)
-                })
+            var selectedPeriodDeals = periodDealRows
+                .Where(d => d.IsFulfilled)
+                .Select(MapDeal)
+                .ToList();
+
+            var selectedPeriodLostDeals = periodDealRows
+                .Where(d => !d.IsFulfilled && HubSpotDealStatus.IsLostKundstatus(d.ContactKundstatus))
+                .Select(MapDeal)
                 .ToList();
 
             var model = new UserProfileViewModel
@@ -646,13 +645,35 @@ namespace WebApplication2.Controllers
                 AnswersCount = await _context.Answers.CountAsync(a => a.UserId == user.Id),
                 LikesGivenCount = await _context.Likes.CountAsync(l => l.UserId == user.Id),
                 ContestEntriesCount = await _context.ContestEntries.CountAsync(ce => ce.UserId == user.Id),
-                CurrentMonthDeals = currentMonthDeals,
-                CurrentMonthFulfilledDealsCount = currentMonthDeals.Count,
-                CurrentMonthFulfilledDealsAmount = currentMonthDeals.Sum(d => d.Amount ?? 0m),
-                CurrentMonthFulfilledDealsProvision = currentMonthDeals.Sum(d => d.SellerProvision ?? 0m)
+                SelectedMonthOffset = selectedMonthOffset,
+                SelectedPeriodLabel = monthStartUtc
+                    .ToLocalTime()
+                    .ToString("MMMM yyyy", CultureInfo.GetCultureInfo("sv-SE")),
+                SelectedPeriodDeals = selectedPeriodDeals,
+                SelectedPeriodFulfilledDealsCount = selectedPeriodDeals.Count,
+                SelectedPeriodFulfilledDealsAmount = selectedPeriodDeals.Sum(d => d.Amount ?? 0m),
+                SelectedPeriodFulfilledDealsProvision = selectedPeriodDeals.Sum(d => d.SellerProvision ?? 0m),
+                SelectedPeriodLostDeals = selectedPeriodLostDeals
             };
 
             return View(model);
+        }
+
+        private static UserHubSpotDealViewModel MapDeal(HubSpotDealImport deal)
+        {
+            return new UserHubSpotDealViewModel
+            {
+                ExternalDealId = deal.ExternalDealId,
+                DealName = deal.DealName ?? string.Empty,
+                FulfilledDateUtc = deal.FulfilledDateUtc,
+                Amount = deal.Amount,
+                SellerProvision = deal.SellerProvision,
+                CurrencyCode = deal.CurrencyCode ?? string.Empty,
+                ContactFirstName = deal.ContactFirstName ?? string.Empty,
+                ContactPhoneNumber = deal.ContactPhoneNumber ?? string.Empty,
+                ContactKundstatus = deal.ContactKundstatus ?? string.Empty,
+                LineItems = ParseLineItemsJson(deal.LineItemsJson)
+            };
         }
 
         private static List<UserHubSpotDealLineItemViewModel> ParseLineItemsJson(string? lineItemsJson)

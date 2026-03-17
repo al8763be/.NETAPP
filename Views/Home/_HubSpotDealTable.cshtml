@@ -1,0 +1,118 @@
+@model WebApplication2.Models.UserHubSpotDealTableViewModel
+
+@if (Model.Deals.Any())
+{
+    <div class="table-responsive">
+        <table class="table table-sm align-middle deal-table">
+            <thead>
+                <tr>
+                    <th>Datum</th>
+                    <th class="mobile-hide-col">Belopp</th>
+                    <th class="mobile-hide-col">Förnamn</th>
+                    <th>Telefon</th>
+                    <th>Kundstatus</th>
+                </tr>
+            </thead>
+            <tbody>
+            @for (var i = 0; i < Model.Deals.Count; i++)
+            {
+                var deal = Model.Deals[i];
+                var detailRowId = $"{Model.DetailRowPrefix}-{i}";
+                var statusRaw = deal.ContactKundstatus?.Trim() ?? string.Empty;
+                var normalizedStatus = WebApplication2.Models.HubSpotDealStatus.GetNormalizedStatus(statusRaw);
+                var statusClass = normalizedStatus switch
+                {
+                    "klar kund" => "status-klar",
+                    "ombokning" => "status-ombokning",
+                    "bokad" => "status-bokad",
+                    "nyregistrerad" => "status-nyregistrerad",
+                    "annullerat" => "status-lost",
+                    "winback" => "status-lost",
+                    "saljare" => "status-lost",
+                    "säljare" => "status-lost",
+                    _ => string.Empty
+                };
+                <tr class="deal-summary-row"
+                    data-detail-id="@detailRowId"
+                    role="button"
+                    tabindex="0"
+                    aria-expanded="false">
+                    <td>@deal.FulfilledDateUtc.ToLocalTime().ToString("yyyy-MM-dd")</td>
+                    <td class="amount-cell mobile-hide-col">@(deal.Amount?.ToString("N2") ?? "-")</td>
+                    <td class="mobile-hide-col">@(string.IsNullOrWhiteSpace(deal.ContactFirstName) ? "-" : deal.ContactFirstName)</td>
+                    <td>@(string.IsNullOrWhiteSpace(deal.ContactPhoneNumber) ? "-" : deal.ContactPhoneNumber)</td>
+                    <td>
+                        @if (string.IsNullOrWhiteSpace(statusRaw))
+                        {
+                            <span class="status-pill">-</span>
+                        }
+                        else
+                        {
+                            <span class="status-pill @statusClass">@statusRaw</span>
+                        }
+                    </td>
+                </tr>
+                <tr id="@detailRowId" class="d-none">
+                    <td colspan="5">
+                        <div class="p-3 border rounded deal-detail-card">
+                            <div class="deal-detail-layout">
+                                <div class="deal-detail-grid">
+                                    <div class="deal-detail-field">
+                                        <div class="text-muted small">Affärs-ID</div>
+                                        <div>@deal.ExternalDealId</div>
+                                    </div>
+                                    <div class="deal-detail-field">
+                                        <div class="text-muted small">Affärsnamn</div>
+                                        <div>@(string.IsNullOrWhiteSpace(deal.DealName) ? "-" : deal.DealName)</div>
+                                    </div>
+                                </div>
+                                <div class="deal-products">
+                                    <div class="text-muted small mb-2">Produkter</div>
+                                    @if (deal.LineItems.Any())
+                                    {
+                                        <ul>
+                                            @foreach (var lineItem in deal.LineItems)
+                                            {
+                                                <li>
+                                                    @if (!string.IsNullOrWhiteSpace(lineItem.Name))
+                                                    {
+                                                        @lineItem.Name
+                                                    }
+                                                    else if (!string.IsNullOrWhiteSpace(lineItem.Sku))
+                                                    {
+                                                        @lineItem.Sku
+                                                    }
+                                                    else
+                                                    {
+                                                        @lineItem.LineItemId
+                                                    }
+                                                    @if (lineItem.Quantity.HasValue)
+                                                    {
+                                                        <text> x @lineItem.Quantity.Value.ToString("0.##")</text>
+                                                    }
+                                                    @if (lineItem.Amount.HasValue)
+                                                    {
+                                                        <text> - @lineItem.Amount.Value.ToString("N2")</text>
+                                                    }
+                                                </li>
+                                            }
+                                        </ul>
+                                    }
+                                    else
+                                    {
+                                        <div class="text-muted">Inga line items sparade för den här affären än.</div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+}
+else
+{
+    <p class="text-muted mb-0">@Model.EmptyMessage</p>
+}

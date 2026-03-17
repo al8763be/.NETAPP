@@ -91,7 +91,7 @@ namespace WebApplication2.Services.HubSpot
         public int MaxPagesPerRun { get; set; } = 10;
 
         [Required]
-        public string SyncCron { get; set; } = "0 */15 * * * *";
+        public string SyncCron { get; set; } = "0 */5 * * * *";
 
         [Required]
         public string UsernameEmailDomain { get; set; } = "stl.nu";

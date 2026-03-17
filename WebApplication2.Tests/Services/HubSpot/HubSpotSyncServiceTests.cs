@@ -17,17 +17,9 @@ public class HubSpotSyncServiceTests
         using var env = TestIdentityEnvironment.Create();
         var user = await env.CreateUserAsync("5555", "5555@stl.nu");
 
-        env.Context.HubSpotOwnerMappings.Add(new HubSpotOwnerMapping
-        {
-            HubSpotOwnerId = "owner-old",
-            OwnerUserId = user.Id,
-            OwnerUsername = user.UserName,
-            LastSeenUtc = DateTime.UtcNow
-        });
         env.Context.HubSpotDealImports.Add(new HubSpotDealImport
         {
             ExternalDealId = "old-deal",
-            HubSpotOwnerId = "owner-old",
             SaljId = "5555",
             OwnerEmail = "old@stl.nu",
             OwnerUserId = user.Id,
@@ -66,7 +58,60 @@ public class HubSpotSyncServiceTests
         Assert.True(result.Succeeded);
         Assert.Equal(1, result.DealsImported);
         Assert.Equal("new-deal", (await env.Context.HubSpotDealImports.SingleAsync()).ExternalDealId);
-        Assert.Empty(await env.Context.HubSpotOwnerMappings.ToListAsync());
+    }
+
+    [Fact]
+    public async Task RebuildCurrentMonthOnlyAsync_RetainsAllowedLostDealsReturnedBySearchWindow()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        await env.CreateUserAsync("5555", "5555@stl.nu");
+
+        var client = new FakeHubSpotClient(
+            dealPages:
+            [
+                new HubSpotDealsPageResult
+                {
+                    Deals =
+                    [
+                        new HubSpotDealRecord
+                        {
+                            ExternalDealId = "fulfilled-deal",
+                            SaljId = "5555",
+                            OwnerEmail = "5555@stl.nu",
+                            IsFulfilled = true,
+                            FulfilledDateUtc = DateTime.UtcNow,
+                            LastModifiedUtc = DateTime.UtcNow,
+                            PayloadHash = "hash-fulfilled"
+                        },
+                        new HubSpotDealRecord
+                        {
+                            ExternalDealId = "lost-deal",
+                            SaljId = "5555",
+                            OwnerEmail = "5555@stl.nu",
+                            IsFulfilled = false,
+                            FulfilledDateUtc = DateTime.UtcNow,
+                            LastModifiedUtc = DateTime.UtcNow,
+                            ContactKundstatus = "Annullerat",
+                            PayloadHash = "hash-lost"
+                        }
+                    ]
+                }
+            ]);
+
+        var sut = CreateSut(env, client);
+
+        var result = await sut.RebuildCurrentMonthOnlyAsync();
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(2, result.DealsImported);
+
+        var deals = await env.Context.HubSpotDealImports
+            .OrderBy(d => d.ExternalDealId)
+            .ToListAsync();
+
+        Assert.Equal(new[] { "fulfilled-deal", "lost-deal" }, deals.Select(d => d.ExternalDealId).ToArray());
+        Assert.True(deals.Single(d => d.ExternalDealId == "fulfilled-deal").IsFulfilled);
+        Assert.False(deals.Single(d => d.ExternalDealId == "lost-deal").IsFulfilled);
     }
 
     [Fact]
@@ -107,7 +152,7 @@ public class HubSpotSyncServiceTests
     }
 
     [Fact]
-    public async Task RunIncrementalSyncAsync_ImportsDealWhenOwnerIdIsMissingButSaljIdExists()
+    public async Task RunIncrementalSyncAsync_ImportsDealWhenSaljIdExists()
     {
         using var env = TestIdentityEnvironment.Create();
         var user = await env.CreateUserAsync("5555", "5555@stl.nu");
@@ -147,68 +192,10 @@ public class HubSpotSyncServiceTests
         var importedDeal = await env.Context.HubSpotDealImports.SingleAsync();
         Assert.Equal("5555", importedDeal.SaljId);
         Assert.Equal(user.Id, importedDeal.OwnerUserId);
-        Assert.Null(importedDeal.HubSpotOwnerId);
     }
 
     [Fact]
-    public async Task RunIncrementalSyncAsync_UsesSaljIdDirectly_AndIgnoresOwnerMappings()
-    {
-        using var env = TestIdentityEnvironment.Create();
-        var saljareUser = await env.CreateUserAsync("1111", "1111@stl.nu");
-        var mappedButDifferentUser = await env.CreateUserAsync("2222", "2222@stl.nu");
-
-        env.Context.HubSpotOwnerMappings.Add(new HubSpotOwnerMapping
-        {
-            HubSpotOwnerId = "owner-1",
-            OwnerUserId = mappedButDifferentUser.Id,
-            OwnerUsername = mappedButDifferentUser.UserName,
-            HubSpotOwnerEmail = "old@stl.nu",
-            LastSeenUtc = DateTime.UtcNow
-        });
-        await env.Context.SaveChangesAsync();
-
-        var client = new FakeHubSpotClient(
-            dealPages:
-            [
-                new HubSpotDealsPageResult
-                {
-                    Deals =
-                    [
-                        new HubSpotDealRecord
-                        {
-                            ExternalDealId = "deal-1",
-                            OwnerId = "owner-1",
-                            OwnerEmail = "ignored@stl.nu",
-                            SaljId = "1111",
-                            DealName = "SaljId precedence",
-                            FulfilledDateUtc = DateTime.UtcNow,
-                            LastModifiedUtc = DateTime.UtcNow,
-                            Amount = 100m,
-                            CurrencyCode = "SEK",
-                            PayloadHash = "hash-a"
-                        }
-                    ]
-                }
-            ]);
-
-        var sut = CreateSut(env, client);
-
-        var result = await sut.RunIncrementalSyncAsync();
-
-        Assert.True(result.Succeeded);
-        Assert.Equal(1, result.DealsImported);
-        Assert.Equal(0, result.DealsSkipped);
-
-        var deal = await env.Context.HubSpotDealImports.SingleAsync();
-        Assert.Equal(saljareUser.Id, deal.OwnerUserId);
-        Assert.Equal("1111", deal.SaljId);
-
-        var mapping = await env.Context.HubSpotOwnerMappings.SingleAsync(m => m.HubSpotOwnerId == "owner-1");
-        Assert.Equal(mappedButDifferentUser.Id, mapping.OwnerUserId);
-    }
-
-    [Fact]
-    public async Task RunIncrementalSyncAsync_ImportsDealWhenSaljIdExists_WithoutEmailFallback()
+    public async Task RunIncrementalSyncAsync_ImportsDealWhenSaljIdExists_WithMissingOwnerEmail()
     {
         using var env = TestIdentityEnvironment.Create();
         var user = await env.CreateUserAsync("3333", "3333@stl.nu");
@@ -248,11 +235,10 @@ public class HubSpotSyncServiceTests
         var deal = await env.Context.HubSpotDealImports.SingleAsync(d => d.ExternalDealId == "deal-2");
         Assert.Equal(user.Id, deal.OwnerUserId);
         Assert.Equal("3333", deal.SaljId);
-        Assert.Empty(await env.Context.HubSpotOwnerMappings.ToListAsync());
     }
 
     [Fact]
-    public async Task RunIncrementalSyncAsync_SkipsDealWhenNoSaljId_AndDoesNotCreateOwnerMapping()
+    public async Task RunIncrementalSyncAsync_SkipsDealWhenNoSaljId()
     {
         using var env = TestIdentityEnvironment.Create();
 
@@ -287,7 +273,6 @@ public class HubSpotSyncServiceTests
         Assert.Equal(1, result.DealsSkipped);
         Assert.Equal(0, result.DealsImported);
         Assert.Empty(await env.Context.HubSpotDealImports.ToListAsync());
-        Assert.Empty(await env.Context.HubSpotOwnerMappings.ToListAsync());
     }
 
     [Fact]
@@ -355,6 +340,308 @@ public class HubSpotSyncServiceTests
         Assert.Empty(await env.Context.HubSpotDealImports
             .Where(d => d.ExternalDealId == "deal-redacted")
             .ToListAsync());
+    }
+
+    [Fact]
+    public async Task RunIncrementalSyncAsync_RetainsCancelledDeal_WhenKundstatusIsAnnullerat()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        await env.CreateUserAsync("7777", "7777@stl.nu");
+
+        var cancelledAt = DateTime.UtcNow;
+
+        var client = new FakeHubSpotClient(
+            dealPages:
+            [
+                new HubSpotDealsPageResult
+                {
+                    Deals =
+                    [
+                        new HubSpotDealRecord
+                        {
+                            ExternalDealId = "deal-lost",
+                            OwnerId = "owner-lost",
+                            OwnerEmail = "7777@stl.nu",
+                            SaljId = "7777",
+                            IsFulfilled = false,
+                            DealName = "Cancelled deal",
+                            FulfilledDateUtc = cancelledAt,
+                            LastModifiedUtc = cancelledAt,
+                            Amount = 120m,
+                            SellerProvision = 12m,
+                            CurrencyCode = "SEK",
+                            ContactKundstatus = "Annullerat",
+                            PayloadHash = "hash-lost"
+                        }
+                    ]
+                }
+            ]);
+
+        var sut = CreateSut(env, client);
+
+        var result = await sut.RunIncrementalSyncAsync();
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.DealsImported);
+
+        var importedDeal = await env.Context.HubSpotDealImports.SingleAsync(d => d.ExternalDealId == "deal-lost");
+        Assert.False(importedDeal.IsFulfilled);
+        Assert.Equal("Annullerat", importedDeal.ContactKundstatus);
+    }
+
+    [Fact]
+    public async Task RunIncrementalSyncAsync_DoesNotRetainCancelledDeal_WhenKundstatusIsAnnullerad()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        await env.CreateUserAsync("7777", "7777@stl.nu");
+
+        var cancelledAt = DateTime.UtcNow;
+
+        var client = new FakeHubSpotClient(
+            dealPages:
+            [
+                new HubSpotDealsPageResult
+                {
+                    Deals =
+                    [
+                        new HubSpotDealRecord
+                        {
+                            ExternalDealId = "deal-annullerad",
+                            OwnerEmail = "7777@stl.nu",
+                            SaljId = "7777",
+                            IsFulfilled = false,
+                            DealName = "Excluded cancelled deal",
+                            FulfilledDateUtc = cancelledAt,
+                            LastModifiedUtc = cancelledAt,
+                            ContactKundstatus = "Annullerad",
+                            PayloadHash = "hash-annullerad"
+                        }
+                    ]
+                }
+            ]);
+
+        var sut = CreateSut(env, client);
+
+        var result = await sut.RunIncrementalSyncAsync();
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.DealsSkipped);
+        Assert.Empty(await env.Context.HubSpotDealImports.ToListAsync());
+    }
+
+    [Fact]
+    public async Task RunIncrementalSyncAsync_RemovesPreviouslyImportedDeal_WhenStoredKundstatusIsAvslag()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        var user = await env.CreateUserAsync("2875", "2875@stl.nu");
+
+        env.Context.HubSpotDealImports.Add(new HubSpotDealImport
+        {
+            ExternalDealId = "deal-avslag-stale",
+            SaljId = "2875",
+            OwnerEmail = "2875@stl.nu",
+            OwnerUserId = user.Id,
+            IsFulfilled = true,
+            FulfilledDateUtc = DateTime.UtcNow,
+            ContactKundstatus = "Avslag",
+            FirstSeenUtc = DateTime.UtcNow,
+            LastSeenUtc = DateTime.UtcNow
+        });
+        await env.Context.SaveChangesAsync();
+
+        var client = new FakeHubSpotClient(
+            dealPages:
+            [
+                new HubSpotDealsPageResult()
+            ]);
+
+        var sut = CreateSut(env, client);
+
+        var result = await sut.RunIncrementalSyncAsync();
+
+        Assert.True(result.Succeeded);
+        Assert.Empty(await env.Context.HubSpotDealImports
+            .Where(d => d.ExternalDealId == "deal-avslag-stale")
+            .ToListAsync());
+    }
+
+    [Fact]
+    public async Task RunIncrementalSyncAsync_DemotesPreviouslyImportedDeal_WhenStoredKundstatusIsAnnullerat()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        var user = await env.CreateUserAsync("2875", "2875@stl.nu");
+
+        env.Context.HubSpotDealImports.Add(new HubSpotDealImport
+        {
+            ExternalDealId = "deal-annullerat-stale",
+            SaljId = "2875",
+            OwnerEmail = "2875@stl.nu",
+            OwnerUserId = user.Id,
+            IsFulfilled = true,
+            FulfilledDateUtc = DateTime.UtcNow,
+            ContactKundstatus = "Annullerat",
+            FirstSeenUtc = DateTime.UtcNow,
+            LastSeenUtc = DateTime.UtcNow
+        });
+        await env.Context.SaveChangesAsync();
+
+        var client = new FakeHubSpotClient(
+            dealPages:
+            [
+                new HubSpotDealsPageResult()
+            ]);
+
+        var sut = CreateSut(env, client);
+
+        var result = await sut.RunIncrementalSyncAsync();
+
+        Assert.True(result.Succeeded);
+
+        var deal = await env.Context.HubSpotDealImports
+            .SingleAsync(d => d.ExternalDealId == "deal-annullerat-stale");
+        Assert.False(deal.IsFulfilled);
+        Assert.Equal("Annullerat", deal.ContactKundstatus);
+    }
+
+    [Fact]
+    public async Task RunIncrementalSyncAsync_RetainsLostDeal_WhenKundstatusIsWinback()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        await env.CreateUserAsync("7777", "7777@stl.nu");
+
+        var lostAt = DateTime.UtcNow;
+
+        var client = new FakeHubSpotClient(
+            dealPages:
+            [
+                new HubSpotDealsPageResult
+                {
+                    Deals =
+                    [
+                        new HubSpotDealRecord
+                        {
+                            ExternalDealId = "deal-winback",
+                            OwnerId = "owner-winback",
+                            OwnerEmail = "7777@stl.nu",
+                            SaljId = "7777",
+                            IsFulfilled = false,
+                            DealName = "Winback deal",
+                            FulfilledDateUtc = lostAt,
+                            LastModifiedUtc = lostAt,
+                            Amount = 120m,
+                            SellerProvision = 12m,
+                            CurrencyCode = "SEK",
+                            ContactKundstatus = "winback",
+                            PayloadHash = "hash-winback"
+                        }
+                    ]
+                }
+            ]);
+
+        var sut = CreateSut(env, client);
+
+        var result = await sut.RunIncrementalSyncAsync();
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.DealsImported);
+
+        var importedDeal = await env.Context.HubSpotDealImports.SingleAsync(d => d.ExternalDealId == "deal-winback");
+        Assert.False(importedDeal.IsFulfilled);
+        Assert.Equal("winback", importedDeal.ContactKundstatus);
+    }
+
+    [Fact]
+    public async Task RunIncrementalSyncAsync_RetainsLostDeal_WhenKundstatusIsSaljare()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        await env.CreateUserAsync("7777", "7777@stl.nu");
+
+        var lostAt = DateTime.UtcNow;
+
+        var client = new FakeHubSpotClient(
+            dealPages:
+            [
+                new HubSpotDealsPageResult
+                {
+                    Deals =
+                    [
+                        new HubSpotDealRecord
+                        {
+                            ExternalDealId = "deal-saljare",
+                            OwnerId = "owner-saljare",
+                            OwnerEmail = "7777@stl.nu",
+                            SaljId = "7777",
+                            IsFulfilled = false,
+                            DealName = "Saljare deal",
+                            FulfilledDateUtc = lostAt,
+                            LastModifiedUtc = lostAt,
+                            Amount = 120m,
+                            SellerProvision = 12m,
+                            CurrencyCode = "SEK",
+                            ContactKundstatus = "Säljare",
+                            PayloadHash = "hash-saljare"
+                        }
+                    ]
+                }
+            ]);
+
+        var sut = CreateSut(env, client);
+
+        var result = await sut.RunIncrementalSyncAsync();
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.DealsImported);
+
+        var importedDeal = await env.Context.HubSpotDealImports.SingleAsync(d => d.ExternalDealId == "deal-saljare");
+        Assert.False(importedDeal.IsFulfilled);
+        Assert.Equal("Säljare", importedDeal.ContactKundstatus);
+    }
+
+    [Fact]
+    public async Task RunIncrementalSyncAsync_RetainsLostDeal_WhenKundstatusIsAnnullerat()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        await env.CreateUserAsync("7777", "7777@stl.nu");
+
+        var lostAt = DateTime.UtcNow;
+
+        var client = new FakeHubSpotClient(
+            dealPages:
+            [
+                new HubSpotDealsPageResult
+                {
+                    Deals =
+                    [
+                        new HubSpotDealRecord
+                        {
+                            ExternalDealId = "deal-annullerat",
+                            OwnerId = "owner-annullerat",
+                            OwnerEmail = "7777@stl.nu",
+                            SaljId = "7777",
+                            IsFulfilled = false,
+                            DealName = "Annullerat deal",
+                            FulfilledDateUtc = lostAt,
+                            LastModifiedUtc = lostAt,
+                            Amount = 120m,
+                            SellerProvision = 12m,
+                            CurrencyCode = "SEK",
+                            ContactKundstatus = "Annullerat",
+                            PayloadHash = "hash-annullerat"
+                        }
+                    ]
+                }
+            ]);
+
+        var sut = CreateSut(env, client);
+
+        var result = await sut.RunIncrementalSyncAsync();
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.DealsImported);
+
+        var importedDeal = await env.Context.HubSpotDealImports.SingleAsync(d => d.ExternalDealId == "deal-annullerat");
+        Assert.False(importedDeal.IsFulfilled);
+        Assert.Equal("Annullerat", importedDeal.ContactKundstatus);
     }
 
     [Fact]

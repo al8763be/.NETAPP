@@ -7,12 +7,11 @@ namespace WebApplication2.Models
         public int Id { get; set; }
         public string ExternalDealId { get; set; } = string.Empty;
         public string? DealName { get; set; }
-        public string? HubSpotOwnerId { get; set; }
-        public HubSpotOwnerMapping? HubSpotOwner { get; set; }
         public string? SaljId { get; set; }
         public string OwnerEmail { get; set; } = string.Empty;
         public string? OwnerUserId { get; set; }
         public IdentityUser? OwnerUser { get; set; }
+        public bool IsFulfilled { get; set; } = true;
         public DateTime FulfilledDateUtc { get; set; }
         public decimal? Amount { get; set; }
         public decimal? SellerProvision { get; set; }

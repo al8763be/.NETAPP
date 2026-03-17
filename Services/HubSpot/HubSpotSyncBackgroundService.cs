@@ -6,32 +6,31 @@ namespace WebApplication2.Services.HubSpot
     public class HubSpotSyncBackgroundService : BackgroundService
     {
         private readonly IServiceScopeFactory _scopeFactory;
+        private readonly HubSpotOptions _options;
         private readonly ILogger<HubSpotSyncBackgroundService> _logger;
 
         public HubSpotSyncBackgroundService(
             IServiceScopeFactory scopeFactory,
+            Microsoft.Extensions.Options.IOptions<HubSpotOptions> options,
             ILogger<HubSpotSyncBackgroundService> logger)
         {
             _scopeFactory = scopeFactory;
+            _options = options.Value;
             _logger = logger;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
+            var syncInterval = ResolveSyncInterval(_options.SyncCron);
             _logger.LogInformation(
-                "HubSpot background sync service started. Scheduled sync runs at the top of every UTC hour.");
+                "HubSpot background sync service started. Scheduled sync runs every {IntervalMinutes} minutes (SyncCron: {SyncCron}).",
+                (int)syncInterval.TotalMinutes,
+                _options.SyncCron);
 
             while (!stoppingToken.IsCancellationRequested)
             {
                 var nowUtc = DateTime.UtcNow;
-                var nextRunUtc = new DateTime(
-                    nowUtc.Year,
-                    nowUtc.Month,
-                    nowUtc.Day,
-                    nowUtc.Hour,
-                    0,
-                    0,
-                    DateTimeKind.Utc).AddHours(1);
+                var nextRunUtc = GetNextRunUtc(nowUtc, syncInterval);
 
                 var delay = nextRunUtc - nowUtc;
                 _logger.LogInformation(
@@ -69,7 +68,7 @@ namespace WebApplication2.Services.HubSpot
             var hasInFlightRun = await context.HubSpotSyncRuns
                 .AsNoTracking()
                 .AnyAsync(
-                    r => r.Status == "Started" && r.StartedUtc >= nowUtc.AddHours(-2),
+                    r => r.Status == "Started" && r.StartedUtc >= nowUtc.AddMinutes(-30),
                     cancellationToken);
 
             if (hasInFlightRun)
@@ -94,6 +93,53 @@ namespace WebApplication2.Services.HubSpot
                 result.DealsImported,
                 result.DealsUpdated,
                 result.DealsSkipped);
+        }
+
+        private static TimeSpan ResolveSyncInterval(string? syncCron)
+        {
+            const int fallbackMinutes = 5;
+
+            if (string.IsNullOrWhiteSpace(syncCron))
+            {
+                return TimeSpan.FromMinutes(fallbackMinutes);
+            }
+
+            var parts = syncCron
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            if (parts.Length == 6 &&
+                parts[0] == "0" &&
+                parts[1].StartsWith("*/", StringComparison.Ordinal) &&
+                int.TryParse(parts[1][2..], out var intervalMinutes) &&
+                intervalMinutes > 0 &&
+                intervalMinutes <= 59)
+            {
+                return TimeSpan.FromMinutes(intervalMinutes);
+            }
+
+            return TimeSpan.FromMinutes(fallbackMinutes);
+        }
+
+        private static DateTime GetNextRunUtc(DateTime nowUtc, TimeSpan syncInterval)
+        {
+            var intervalMinutes = Math.Max(1, (int)syncInterval.TotalMinutes);
+            var currentMinuteBucket = nowUtc.Minute / intervalMinutes;
+            var currentBoundaryUtc = new DateTime(
+                nowUtc.Year,
+                nowUtc.Month,
+                nowUtc.Day,
+                nowUtc.Hour,
+                currentMinuteBucket * intervalMinutes,
+                0,
+                DateTimeKind.Utc);
+
+            var nextRunUtc = currentBoundaryUtc.AddMinutes(intervalMinutes);
+            if (nextRunUtc <= nowUtc)
+            {
+                nextRunUtc = nowUtc.AddMinutes(intervalMinutes);
+            }
+
+            return nextRunUtc;
         }
     }
 }

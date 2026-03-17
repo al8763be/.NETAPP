@@ -5,14 +5,11 @@ namespace WebApplication2.Tests.Helpers;
 public sealed class FakeHubSpotClient : IHubSpotClient
 {
     private readonly Queue<HubSpotDealsPageResult> _dealPages;
-    private readonly Dictionary<string, HubSpotOwnerRecord?> _owners;
 
     public FakeHubSpotClient(
-        IEnumerable<HubSpotDealsPageResult>? dealPages = null,
-        IDictionary<string, HubSpotOwnerRecord?>? owners = null)
+        IEnumerable<HubSpotDealsPageResult>? dealPages = null)
     {
         _dealPages = new Queue<HubSpotDealsPageResult>(dealPages ?? Enumerable.Empty<HubSpotDealsPageResult>());
-        _owners = new Dictionary<string, HubSpotOwnerRecord?>(owners ?? new Dictionary<string, HubSpotOwnerRecord?>(), StringComparer.Ordinal);
     }
 
     public Task<HubSpotDealsPageResult> GetFulfilledDealsAsync(
@@ -42,13 +39,5 @@ public sealed class FakeHubSpotClient : IHubSpotClient
         }
 
         return Task.FromResult(_dealPages.Dequeue());
-    }
-
-    public Task<HubSpotOwnerRecord?> GetOwnerByOwnerIdAsync(
-        string ownerId,
-        CancellationToken cancellationToken = default)
-    {
-        _owners.TryGetValue(ownerId, out var owner);
-        return Task.FromResult(owner);
     }
 }
