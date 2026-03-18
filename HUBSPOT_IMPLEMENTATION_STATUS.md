@@ -16,6 +16,7 @@ Status: Implemented
 
 - Incremental sync fetches deals from HubSpot and enriches them with contact and line item data.
 - Incremental sync now persists its cursor and only advances `LastSuccessfulSyncUtc` after the modified-since result set is fully exhausted.
+- Incremental sync catch-up is intentionally bounded by a configurable recent lookback window, so very old modified deal backlog is skipped instead of being paged indefinitely.
 - Rebuild/current-window sync fetches contacts by `forsaljningsdatum`, resolves associated deals, and then enriches those deals from the selected associated contact.
 - Active contest window sync now persists a separate cursor per contest window so large windows continue across scheduled runs instead of restarting from page 1.
 - Contact enrichment is based on a single selected associated contact per deal.

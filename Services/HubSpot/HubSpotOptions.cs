@@ -90,6 +90,9 @@ namespace WebApplication2.Services.HubSpot
         [Range(1, 100)]
         public int MaxPagesPerRun { get; set; } = 50;
 
+        [Range(1, 365)]
+        public int IncrementalCatchUpLookbackDays { get; set; } = 45;
+
         [Required]
         public string SyncCron { get; set; } = "0 */5 * * * *";
 

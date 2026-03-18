@@ -854,6 +854,94 @@ public class HubSpotSyncServiceTests
     }
 
     [Fact]
+    public async Task RunIncrementalSyncAsync_ClampsOldIncrementalBacklogToConfiguredLookback()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        await env.CreateUserAsync("5555", "5555@stl.nu");
+
+        env.Context.HubSpotSyncStates.Add(new HubSpotSyncState
+        {
+            IntegrationName = "HubSpotDeals",
+            LastSuccessfulSyncUtc = DateTime.UtcNow.AddDays(-120),
+            LastCursor = "stale-cursor"
+        });
+        await env.Context.SaveChangesAsync();
+
+        DateTime? firstCallModifiedSinceUtc = null;
+        string? firstCallCursor = null;
+        DateTime? secondCallModifiedSinceUtc = null;
+        string? secondCallCursor = null;
+
+        var client = new FakeHubSpotClient(
+            getFulfilledDeals: (modifiedSinceUtc, afterCursor, _) =>
+            {
+                if (firstCallModifiedSinceUtc == null)
+                {
+                    firstCallModifiedSinceUtc = modifiedSinceUtc;
+                    firstCallCursor = afterCursor;
+                    return new HubSpotDealsPageResult
+                    {
+                        Deals =
+                        [
+                            new HubSpotDealRecord
+                            {
+                                ExternalDealId = "clamped-deal-1",
+                                SaljId = "5555",
+                                OwnerEmail = "5555@stl.nu",
+                                IsFulfilled = true,
+                                FulfilledDateUtc = DateTime.UtcNow,
+                                LastModifiedUtc = DateTime.UtcNow,
+                                ContactKundstatus = "Klar kund",
+                                PayloadHash = "clamped-1"
+                            }
+                        ],
+                        NextCursor = "fresh-cursor"
+                    };
+                }
+
+                secondCallModifiedSinceUtc = modifiedSinceUtc;
+                secondCallCursor = afterCursor;
+                return new HubSpotDealsPageResult
+                {
+                    Deals =
+                    [
+                        new HubSpotDealRecord
+                        {
+                            ExternalDealId = "clamped-deal-2",
+                            SaljId = "5555",
+                            OwnerEmail = "5555@stl.nu",
+                            IsFulfilled = true,
+                            FulfilledDateUtc = DateTime.UtcNow,
+                            LastModifiedUtc = DateTime.UtcNow,
+                            ContactKundstatus = "Klar kund",
+                            PayloadHash = "clamped-2"
+                        }
+                    ]
+                };
+            });
+
+        var sut = CreateSut(env, client, options =>
+        {
+            options.IncrementalCatchUpLookbackDays = 30;
+        });
+
+        var firstRun = await sut.RunIncrementalSyncAsync();
+        var stateAfterFirstRun = await env.Context.HubSpotSyncStates.SingleAsync(s => s.IntegrationName == "HubSpotDeals");
+
+        Assert.True(firstRun.Succeeded);
+        Assert.NotNull(firstCallModifiedSinceUtc);
+        Assert.Null(firstCallCursor);
+        Assert.Equal(DateTime.UtcNow.Date.AddDays(-30), firstCallModifiedSinceUtc);
+        Assert.Equal("fresh-cursor", stateAfterFirstRun.LastCursor);
+
+        var secondRun = await sut.RunIncrementalSyncAsync();
+
+        Assert.True(secondRun.Succeeded);
+        Assert.Equal("fresh-cursor", secondCallCursor);
+        Assert.Equal(firstCallModifiedSinceUtc, secondCallModifiedSinceUtc);
+    }
+
+    [Fact]
     public async Task RunIncrementalSyncAsync_ContinuesActiveContestWindowAcrossRuns()
     {
         using var env = TestIdentityEnvironment.Create();
@@ -1012,15 +1100,22 @@ public class HubSpotSyncServiceTests
         Assert.Equal(mappedUser.Id, entries[0].UserId);
     }
 
-    private static HubSpotSyncService CreateSut(TestIdentityEnvironment env, IHubSpotClient client)
+    private static HubSpotSyncService CreateSut(
+        TestIdentityEnvironment env,
+        IHubSpotClient client,
+        Action<HubSpotOptions>? configure = null)
     {
-        var options = Options.Create(new HubSpotOptions
+        var hubSpotOptions = new HubSpotOptions
         {
             Enabled = true,
             MaxPagesPerRun = 1,
             PageSize = 100,
+            IncrementalCatchUpLookbackDays = 45,
             UsernameEmailDomain = "stl.nu"
-        });
+        };
+        configure?.Invoke(hubSpotOptions);
+
+        var options = Options.Create(hubSpotOptions);
 
         var mappingService = new HubSpotMappingService(options);
 

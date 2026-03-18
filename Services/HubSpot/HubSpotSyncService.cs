@@ -59,7 +59,10 @@ namespace WebApplication2.Services.HubSpot
                 syncState.LastAttemptUtc = DateTime.UtcNow;
                 await _context.SaveChangesAsync(cancellationToken);
 
-                var modifiedSinceUtc = syncState.LastSuccessfulSyncUtc;
+                var modifiedSinceUtc = await ApplyIncrementalCatchUpBoundaryAsync(
+                    syncState,
+                    run.StartedUtc,
+                    cancellationToken);
                 var cursor = syncState.LastCursor;
                 var pageCount = 0;
                 var reachedEnd = false;
@@ -465,6 +468,33 @@ namespace WebApplication2.Services.HubSpot
 
             _context.HubSpotSyncStates.Add(syncState);
             return syncState;
+        }
+
+        private async Task<DateTime?> ApplyIncrementalCatchUpBoundaryAsync(
+            HubSpotSyncState syncState,
+            DateTime runStartedUtc,
+            CancellationToken cancellationToken)
+        {
+            // Use a day-based anchor so the bounded catch-up window stays stable across runs
+            // while a cursor is being exhausted.
+            var lowerBoundUtc = runStartedUtc.Date.AddDays(-_options.IncrementalCatchUpLookbackDays);
+            var currentModifiedSinceUtc = syncState.LastSuccessfulSyncUtc;
+
+            if (currentModifiedSinceUtc.HasValue && currentModifiedSinceUtc.Value >= lowerBoundUtc)
+            {
+                return currentModifiedSinceUtc;
+            }
+
+            syncState.LastSuccessfulSyncUtc = lowerBoundUtc;
+            syncState.LastCursor = null;
+            syncState.LastError = null;
+            await _context.SaveChangesAsync(cancellationToken);
+
+            _logger.LogWarning(
+                "HubSpot incremental sync lower bound advanced to {LowerBoundUtc:u}. Older incremental backlog before this point will be skipped.",
+                lowerBoundUtc);
+
+            return lowerBoundUtc;
         }
 
         private static string GetContestSyncStateName(Contest contest)
