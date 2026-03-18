@@ -306,6 +306,13 @@ namespace WebApplication2.Services.HubSpot
             var normalizedSaljId = NormalizeSaljId(deal.SaljId);
             if (normalizedSaljId == null)
             {
+                if (existing != null)
+                {
+                    _context.HubSpotDealImports.Remove(existing);
+                    await _context.SaveChangesAsync(cancellationToken);
+                    return (0, 1, 0);
+                }
+
                 return (0, 0, 1);
             }
 
@@ -391,7 +398,18 @@ namespace WebApplication2.Services.HubSpot
                 var contestStartUtc = DateTime.SpecifyKind(contest.StartDate, DateTimeKind.Local).ToUniversalTime();
                 var contestEndUtc = DateTime.SpecifyKind(contest.EndDate, DateTimeKind.Local).ToUniversalTime();
                 var syncState = await GetOrCreateSyncStateAsync(GetContestSyncStateName(contest), cancellationToken);
+                var sweepState = await GetOrCreateSyncStateAsync(GetContestSweepStateName(contest), cancellationToken);
+                var isStartingNewSweep = string.IsNullOrWhiteSpace(syncState.LastCursor);
+
+                if (isStartingNewSweep)
+                {
+                    sweepState.LastSuccessfulSyncUtc = DateTime.UtcNow;
+                    sweepState.LastCursor = null;
+                    sweepState.LastError = null;
+                }
+
                 syncState.LastAttemptUtc = DateTime.UtcNow;
+                sweepState.LastAttemptUtc = DateTime.UtcNow;
                 await _context.SaveChangesAsync(cancellationToken);
 
                 var cursor = syncState.LastCursor;
@@ -429,6 +447,12 @@ namespace WebApplication2.Services.HubSpot
 
                 if (reachedEnd)
                 {
+                    var sweepStartedUtc = sweepState.LastSuccessfulSyncUtc ?? DateTime.UtcNow;
+                    await PruneStaleDealsForWindowAsync(
+                        contestStartUtc,
+                        contestEndUtc,
+                        sweepStartedUtc,
+                        cancellationToken);
                     syncState.LastSuccessfulSyncUtc = DateTime.UtcNow;
                     syncState.LastCursor = null;
                 }
@@ -443,6 +467,7 @@ namespace WebApplication2.Services.HubSpot
                 }
 
                 syncState.LastError = null;
+                sweepState.LastError = null;
                 await _context.SaveChangesAsync(cancellationToken);
             }
 
@@ -499,6 +524,38 @@ namespace WebApplication2.Services.HubSpot
 
         private static string GetContestSyncStateName(Contest contest)
             => $"HubSpotDealsContest:{contest.Id}:{contest.StartDate:yyyyMMdd}:{contest.EndDate:yyyyMMdd}";
+
+        private static string GetContestSweepStateName(Contest contest)
+            => $"HubSpotDealsContestSweep:{contest.Id}:{contest.StartDate:yyyyMMdd}:{contest.EndDate:yyyyMMdd}";
+
+        private async Task PruneStaleDealsForWindowAsync(
+            DateTime contestStartUtc,
+            DateTime contestEndUtc,
+            DateTime sweepStartedUtc,
+            CancellationToken cancellationToken)
+        {
+            var staleDeals = await _context.HubSpotDealImports
+                .Where(d =>
+                    d.FulfilledDateUtc >= contestStartUtc &&
+                    d.FulfilledDateUtc <= contestEndUtc &&
+                    d.LastSeenUtc < sweepStartedUtc)
+                .ToListAsync(cancellationToken);
+
+            if (staleDeals.Count == 0)
+            {
+                return;
+            }
+
+            _context.HubSpotDealImports.RemoveRange(staleDeals);
+            await _context.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation(
+                "Pruned {RemovedCount} stale HubSpot deals for window {StartUtc:u} - {EndUtc:u} after completed sweep started at {SweepStartedUtc:u}.",
+                staleDeals.Count,
+                contestStartUtc,
+                contestEndUtc,
+                sweepStartedUtc);
+        }
 
         private string? NormalizeSaljId(string? saljId)
         {

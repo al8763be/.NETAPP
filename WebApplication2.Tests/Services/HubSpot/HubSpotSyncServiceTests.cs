@@ -348,6 +348,58 @@ public class HubSpotSyncServiceTests
     }
 
     [Fact]
+    public async Task RunIncrementalSyncAsync_RemovesPreviouslyImportedDeal_WhenResolvedSaljIdIsMissing()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        var user = await env.CreateUserAsync("7777", "7777@stl.nu");
+
+        env.Context.HubSpotDealImports.Add(new HubSpotDealImport
+        {
+            ExternalDealId = "deal-missing-saljid",
+            SaljId = "7777",
+            OwnerEmail = "7777@stl.nu",
+            OwnerUserId = user.Id,
+            IsFulfilled = true,
+            FulfilledDateUtc = DateTime.UtcNow.AddMinutes(-5),
+            ContactKundstatus = "Klar kund",
+            FirstSeenUtc = DateTime.UtcNow.AddMinutes(-5),
+            LastSeenUtc = DateTime.UtcNow.AddMinutes(-5)
+        });
+        await env.Context.SaveChangesAsync();
+
+        var client = new FakeHubSpotClient(
+            dealPages:
+            [
+                new HubSpotDealsPageResult
+                {
+                    Deals =
+                    [
+                        new HubSpotDealRecord
+                        {
+                            ExternalDealId = "deal-missing-saljid",
+                            OwnerEmail = "7777@stl.nu",
+                            SaljId = null,
+                            IsFulfilled = true,
+                            FulfilledDateUtc = DateTime.UtcNow,
+                            LastModifiedUtc = DateTime.UtcNow,
+                            ContactKundstatus = "Klar kund",
+                            PayloadHash = "missing-saljid"
+                        }
+                    ]
+                }
+            ]);
+
+        var sut = CreateSut(env, client);
+
+        var result = await sut.RunIncrementalSyncAsync();
+
+        Assert.True(result.Succeeded);
+        Assert.Empty(await env.Context.HubSpotDealImports
+            .Where(d => d.ExternalDealId == "deal-missing-saljid")
+            .ToListAsync());
+    }
+
+    [Fact]
     public async Task RunIncrementalSyncAsync_RetainsCancelledDeal_WhenKundstatusIsAnnullerat()
     {
         using var env = TestIdentityEnvironment.Create();
@@ -1033,6 +1085,69 @@ public class HubSpotSyncServiceTests
     }
 
     [Fact]
+    public async Task RunIncrementalSyncAsync_PrunesStaleDealsAfterCompletedContestWindowSweep()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        var user = await env.CreateUserAsync("2875", "2875@stl.nu");
+
+        env.Context.Contests.Add(new Contest
+        {
+            Name = "Prune Contest",
+            StartDate = DateTime.Now.AddDays(-1),
+            EndDate = DateTime.Now.AddDays(1),
+            IsActive = true,
+            CreatedDate = DateTime.Now
+        });
+
+        env.Context.HubSpotDealImports.Add(new HubSpotDealImport
+        {
+            ExternalDealId = "stale-window-deal",
+            SaljId = "2875",
+            OwnerEmail = "2875@stl.nu",
+            OwnerUserId = user.Id,
+            IsFulfilled = true,
+            FulfilledDateUtc = DateTime.UtcNow.Date,
+            ContactKundstatus = "Nyregistrerad",
+            FirstSeenUtc = DateTime.UtcNow.AddDays(-1),
+            LastSeenUtc = DateTime.UtcNow.AddDays(-1)
+        });
+        await env.Context.SaveChangesAsync();
+
+        var client = new FakeHubSpotClient(
+            getFulfilledDeals: (_, _, _) => new HubSpotDealsPageResult(),
+            searchDealsByClosedDateRange: (_, _, _, _) => new HubSpotDealsPageResult
+            {
+                Deals =
+                [
+                    new HubSpotDealRecord
+                    {
+                        ExternalDealId = "fresh-window-deal",
+                        SaljId = "2875",
+                        OwnerEmail = "2875@stl.nu",
+                        IsFulfilled = true,
+                        FulfilledDateUtc = DateTime.UtcNow.Date,
+                        LastModifiedUtc = DateTime.UtcNow,
+                        ContactKundstatus = "Nyregistrerad",
+                        PayloadHash = "fresh-window"
+                    }
+                ]
+            });
+
+        var sut = CreateSut(env, client);
+
+        var result = await sut.RunIncrementalSyncAsync();
+
+        Assert.True(result.Succeeded);
+
+        var remainingDeals = await env.Context.HubSpotDealImports
+            .OrderBy(d => d.ExternalDealId)
+            .Select(d => d.ExternalDealId)
+            .ToListAsync();
+
+        Assert.Equal(new[] { "fresh-window-deal" }, remainingDeals);
+    }
+
+    [Fact]
     public async Task RunIncrementalSyncAsync_RecalculatesContestEntries_GroupsBySaljId()
     {
         using var env = TestIdentityEnvironment.Create();
@@ -1052,37 +1167,35 @@ public class HubSpotSyncServiceTests
 
         var fulfilledAt = DateTime.UtcNow.AddMinutes(-15);
         var client = new FakeHubSpotClient(
-            dealPages:
-            [
-                new HubSpotDealsPageResult
-                {
-                    Deals =
-                    [
-                        new HubSpotDealRecord
-                        {
-                            ExternalDealId = "deal-dedupe-1",
-                            OwnerId = "owner-dup",
-                            OwnerEmail = "owner@stl.nu",
-                            SaljId = "1234",
-                            FulfilledDateUtc = fulfilledAt,
-                            LastModifiedUtc = fulfilledAt,
-                            ContactKundstatus = "Klar kund",
-                            PayloadHash = "dedupe-1"
-                        },
-                        new HubSpotDealRecord
-                        {
-                            ExternalDealId = "deal-dedupe-2",
-                            OwnerId = "owner-dup",
-                            OwnerEmail = "owner.alias@stl.nu",
-                            SaljId = " 1234 ",
-                            FulfilledDateUtc = fulfilledAt,
-                            LastModifiedUtc = fulfilledAt,
-                            ContactKundstatus = "Klar kund",
-                            PayloadHash = "dedupe-2"
-                        }
-                    ]
-                }
-            ]);
+            getFulfilledDeals: (_, _, _) => new HubSpotDealsPageResult(),
+            searchDealsByClosedDateRange: (_, _, _, _) => new HubSpotDealsPageResult
+            {
+                Deals =
+                [
+                    new HubSpotDealRecord
+                    {
+                        ExternalDealId = "deal-dedupe-1",
+                        OwnerId = "owner-dup",
+                        OwnerEmail = "owner@stl.nu",
+                        SaljId = "1234",
+                        FulfilledDateUtc = fulfilledAt,
+                        LastModifiedUtc = fulfilledAt,
+                        ContactKundstatus = "Klar kund",
+                        PayloadHash = "dedupe-1"
+                    },
+                    new HubSpotDealRecord
+                    {
+                        ExternalDealId = "deal-dedupe-2",
+                        OwnerId = "owner-dup",
+                        OwnerEmail = "owner.alias@stl.nu",
+                        SaljId = " 1234 ",
+                        FulfilledDateUtc = fulfilledAt,
+                        LastModifiedUtc = fulfilledAt,
+                        ContactKundstatus = "Klar kund",
+                        PayloadHash = "dedupe-2"
+                    }
+                ]
+            });
 
         var sut = CreateSut(env, client);
 

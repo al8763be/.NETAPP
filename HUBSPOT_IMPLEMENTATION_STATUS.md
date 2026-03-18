@@ -19,6 +19,7 @@ Status: Implemented
 - Incremental sync catch-up is intentionally bounded by a configurable recent lookback window, so very old modified deal backlog is skipped instead of being paged indefinitely.
 - Rebuild/current-window sync fetches contacts by `forsaljningsdatum`, resolves associated deals, and then enriches those deals from the selected associated contact.
 - Active contest window sync now persists a separate cursor per contest window so large windows continue across scheduled runs instead of restarting from page 1.
+- After a full active-window sweep completes, stored rows inside that window that were not seen during the sweep are pruned as stale.
 - Contact enrichment is based on a single selected associated contact per deal.
 - `FulfilledDateUtc` is taken from the selected associated contact's `forsaljningsdatum`.
 - Imported deal rows are stored in `HubSpotDealImports`.
