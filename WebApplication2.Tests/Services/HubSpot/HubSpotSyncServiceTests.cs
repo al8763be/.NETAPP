@@ -768,6 +768,183 @@ public class HubSpotSyncServiceTests
     }
 
     [Fact]
+    public async Task RunIncrementalSyncAsync_ContinuesFromStoredCursor_BeforeAdvancingSuccessWatermark()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        await env.CreateUserAsync("5555", "5555@stl.nu");
+
+        var previousSuccessUtc = new DateTime(2026, 03, 18, 15, 00, 00, DateTimeKind.Utc);
+        env.Context.HubSpotSyncStates.Add(new HubSpotSyncState
+        {
+            IntegrationName = "HubSpotDeals",
+            LastSuccessfulSyncUtc = previousSuccessUtc
+        });
+        await env.Context.SaveChangesAsync();
+
+        var client = new FakeHubSpotClient(
+            getFulfilledDeals: (modifiedSinceUtc, afterCursor, _) =>
+            {
+                Assert.Equal(previousSuccessUtc, modifiedSinceUtc);
+
+                return afterCursor switch
+                {
+                    null => new HubSpotDealsPageResult
+                    {
+                        Deals =
+                        [
+                            new HubSpotDealRecord
+                            {
+                                ExternalDealId = "deal-page-1",
+                                SaljId = "5555",
+                                OwnerEmail = "5555@stl.nu",
+                                IsFulfilled = true,
+                                FulfilledDateUtc = previousSuccessUtc.AddMinutes(1),
+                                LastModifiedUtc = previousSuccessUtc.AddMinutes(1),
+                                ContactKundstatus = "Klar kund",
+                                PayloadHash = "page-1"
+                            }
+                        ],
+                        NextCursor = "cursor-1"
+                    },
+                    "cursor-1" => new HubSpotDealsPageResult
+                    {
+                        Deals =
+                        [
+                            new HubSpotDealRecord
+                            {
+                                ExternalDealId = "deal-page-2",
+                                SaljId = "5555",
+                                OwnerEmail = "5555@stl.nu",
+                                IsFulfilled = true,
+                                FulfilledDateUtc = previousSuccessUtc.AddMinutes(2),
+                                LastModifiedUtc = previousSuccessUtc.AddMinutes(2),
+                                ContactKundstatus = "Klar kund",
+                                PayloadHash = "page-2"
+                            }
+                        ]
+                    },
+                    _ => new HubSpotDealsPageResult()
+                };
+            });
+
+        var sut = CreateSut(env, client);
+
+        var firstRun = await sut.RunIncrementalSyncAsync();
+        var stateAfterFirstRun = await env.Context.HubSpotSyncStates.SingleAsync(s => s.IntegrationName == "HubSpotDeals");
+
+        Assert.True(firstRun.Succeeded);
+        Assert.Equal(1, firstRun.DealsImported);
+        Assert.Equal(previousSuccessUtc, stateAfterFirstRun.LastSuccessfulSyncUtc);
+        Assert.Equal("cursor-1", stateAfterFirstRun.LastCursor);
+
+        var secondRun = await sut.RunIncrementalSyncAsync();
+        var stateAfterSecondRun = await env.Context.HubSpotSyncStates.SingleAsync(s => s.IntegrationName == "HubSpotDeals");
+
+        Assert.True(secondRun.Succeeded);
+        Assert.Equal(1, secondRun.DealsImported);
+        Assert.True(stateAfterSecondRun.LastSuccessfulSyncUtc > previousSuccessUtc);
+        Assert.Null(stateAfterSecondRun.LastCursor);
+
+        var importedDeals = await env.Context.HubSpotDealImports
+            .OrderBy(d => d.ExternalDealId)
+            .Select(d => d.ExternalDealId)
+            .ToListAsync();
+
+        Assert.Equal(new[] { "deal-page-1", "deal-page-2" }, importedDeals);
+    }
+
+    [Fact]
+    public async Task RunIncrementalSyncAsync_ContinuesActiveContestWindowAcrossRuns()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        var user = await env.CreateUserAsync("1234", "1234@stl.nu");
+
+        env.Context.Contests.Add(new Contest
+        {
+            Name = "Cursor Test Contest",
+            StartDate = DateTime.Now.AddDays(-1),
+            EndDate = DateTime.Now.AddDays(1),
+            IsActive = true,
+            CreatedDate = DateTime.Now
+        });
+        await env.Context.SaveChangesAsync();
+
+        var contestDealTimeUtc = DateTime.UtcNow.AddMinutes(-15);
+        var client = new FakeHubSpotClient(
+            getFulfilledDeals: (_, _, _) => new HubSpotDealsPageResult(),
+            searchDealsByClosedDateRange: (_, _, afterCursor, _) =>
+            {
+                return afterCursor switch
+                {
+                    null => new HubSpotDealsPageResult
+                    {
+                        Deals =
+                        [
+                            new HubSpotDealRecord
+                            {
+                                ExternalDealId = "contest-deal-1",
+                                SaljId = "1234",
+                                OwnerEmail = "1234@stl.nu",
+                                IsFulfilled = true,
+                                FulfilledDateUtc = contestDealTimeUtc,
+                                LastModifiedUtc = contestDealTimeUtc,
+                                ContactKundstatus = "Klar kund",
+                                PayloadHash = "contest-1"
+                            }
+                        ],
+                        NextCursor = "contest-cursor-1"
+                    },
+                    "contest-cursor-1" => new HubSpotDealsPageResult
+                    {
+                        Deals =
+                        [
+                            new HubSpotDealRecord
+                            {
+                                ExternalDealId = "contest-deal-2",
+                                SaljId = "1234",
+                                OwnerEmail = "1234@stl.nu",
+                                IsFulfilled = true,
+                                FulfilledDateUtc = contestDealTimeUtc.AddMinutes(1),
+                                LastModifiedUtc = contestDealTimeUtc.AddMinutes(1),
+                                ContactKundstatus = "Klar kund",
+                                PayloadHash = "contest-2"
+                            }
+                        ]
+                    },
+                    _ => new HubSpotDealsPageResult()
+                };
+            });
+
+        var sut = CreateSut(env, client);
+
+        var firstRun = await sut.RunIncrementalSyncAsync();
+        var contestStateAfterFirstRun = await env.Context.HubSpotSyncStates
+            .SingleAsync(s => s.IntegrationName.StartsWith("HubSpotDealsContest:"));
+
+        Assert.True(firstRun.Succeeded);
+        Assert.Equal("contest-cursor-1", contestStateAfterFirstRun.LastCursor);
+
+        var secondRun = await sut.RunIncrementalSyncAsync();
+        var contestStateAfterSecondRun = await env.Context.HubSpotSyncStates
+            .SingleAsync(s => s.IntegrationName.StartsWith("HubSpotDealsContest:"));
+
+        Assert.True(secondRun.Succeeded);
+        Assert.Null(contestStateAfterSecondRun.LastCursor);
+        Assert.True(contestStateAfterSecondRun.LastSuccessfulSyncUtc.HasValue);
+
+        var importedDeals = await env.Context.HubSpotDealImports
+            .Where(d => d.SaljId == "1234")
+            .OrderBy(d => d.ExternalDealId)
+            .ToListAsync();
+
+        Assert.Equal(new[] { "contest-deal-1", "contest-deal-2" }, importedDeals.Select(d => d.ExternalDealId).ToArray());
+
+        var contestEntry = await env.Context.ContestEntries.SingleAsync();
+        Assert.Equal(user.Id, contestEntry.UserId);
+        Assert.Equal(2, contestEntry.DealsCount);
+    }
+
+    [Fact]
     public async Task RunIncrementalSyncAsync_RecalculatesContestEntries_GroupsBySaljId()
     {
         using var env = TestIdentityEnvironment.Create();

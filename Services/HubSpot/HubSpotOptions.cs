@@ -88,7 +88,7 @@ namespace WebApplication2.Services.HubSpot
         public int PageSize { get; set; } = 100;
 
         [Range(1, 100)]
-        public int MaxPagesPerRun { get; set; } = 10;
+        public int MaxPagesPerRun { get; set; } = 50;
 
         [Required]
         public string SyncCron { get; set; } = "0 */5 * * * *";

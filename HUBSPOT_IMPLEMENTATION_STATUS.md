@@ -1,6 +1,6 @@
 # HubSpot Integration Status (Point of Truth)
 
-Last updated: 2026-03-17
+Last updated: 2026-03-18
 
 ## Current Source Of Truth
 
@@ -15,7 +15,9 @@ Last updated: 2026-03-17
 Status: Implemented
 
 - Incremental sync fetches deals from HubSpot and enriches them with contact and line item data.
+- Incremental sync now persists its cursor and only advances `LastSuccessfulSyncUtc` after the modified-since result set is fully exhausted.
 - Rebuild/current-window sync fetches contacts by `forsaljningsdatum`, resolves associated deals, and then enriches those deals from the selected associated contact.
+- Active contest window sync now persists a separate cursor per contest window so large windows continue across scheduled runs instead of restarting from page 1.
 - Contact enrichment is based on a single selected associated contact per deal.
 - `FulfilledDateUtc` is taken from the selected associated contact's `forsaljningsdatum`.
 - Imported deal rows are stored in `HubSpotDealImports`.
@@ -62,6 +64,10 @@ Status: Implemented
 - Grouping is done by `SaljId`.
 - Display labels come from local `EmployeeProfile` data where available.
 - Cancelled/lost deals do not affect leaderboard counts.
+- Known mismatch to fix later:
+  - live leaderboard queries use contest window `FulfilledDateUtc >= StartDate.Date` and `< EndDate.Date + 1 day`
+  - stored `ContestEntries` recalculation currently uses `FulfilledDateUtc >= StartDate` and `<= EndDate`
+  - this can create end-date boundary differences between live leaderboard output and recalculated stored contest entries
 
 Related files:
 - `Controllers/SocialController.cs`

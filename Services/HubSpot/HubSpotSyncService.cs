@@ -9,6 +9,7 @@ namespace WebApplication2.Services.HubSpot
 {
     public class HubSpotSyncService : IHubSpotSyncService
     {
+        private const string IncrementalSyncStateName = "HubSpotDeals";
         private readonly STLForumContext _context;
         private readonly IHubSpotClient _hubSpotClient;
         private readonly IHubSpotMappingService _mappingService;
@@ -54,24 +55,12 @@ namespace WebApplication2.Services.HubSpot
 
             try
             {
-                var syncState = await _context.HubSpotSyncStates
-                    .FirstOrDefaultAsync(s => s.IntegrationName == "HubSpotDeals", cancellationToken);
-
-                if (syncState == null)
-                {
-                    syncState = new HubSpotSyncState
-                    {
-                        IntegrationName = "HubSpotDeals"
-                    };
-                    _context.HubSpotSyncStates.Add(syncState);
-                }
-
+                var syncState = await GetOrCreateSyncStateAsync(IncrementalSyncStateName, cancellationToken);
                 syncState.LastAttemptUtc = DateTime.UtcNow;
                 await _context.SaveChangesAsync(cancellationToken);
 
-                var isInitialBackfill = !syncState.LastSuccessfulSyncUtc.HasValue;
-                var modifiedSinceUtc = isInitialBackfill ? null : syncState.LastSuccessfulSyncUtc;
-                var cursor = isInitialBackfill ? syncState.LastCursor : null;
+                var modifiedSinceUtc = syncState.LastSuccessfulSyncUtc;
+                var cursor = syncState.LastCursor;
                 var pageCount = 0;
                 var reachedEnd = false;
 
@@ -113,28 +102,30 @@ namespace WebApplication2.Services.HubSpot
                 run.Status = "Succeeded";
                 run.FinishedUtc = DateTime.UtcNow;
 
-                if (isInitialBackfill)
+                if (reachedEnd)
                 {
-                    if (reachedEnd)
-                    {
-                        syncState.LastSuccessfulSyncUtc = DateTime.UtcNow;
-                        syncState.LastCursor = null;
-                    }
-                    else
-                    {
-                        // Continue historical backfill next run.
-                        syncState.LastCursor = cursor;
-                    }
+                    // Use the run start as the incremental watermark so updates that land mid-run
+                    // are picked up again on the next pass instead of being skipped.
+                    syncState.LastSuccessfulSyncUtc = run.StartedUtc;
+                    syncState.LastCursor = null;
                 }
                 else
                 {
-                    syncState.LastSuccessfulSyncUtc = DateTime.UtcNow;
-                    // Incremental runs always restart from cursor null.
-                    syncState.LastCursor = null;
+                    syncState.LastCursor = cursor;
                 }
+
                 syncState.LastError = null;
 
                 await _context.SaveChangesAsync(cancellationToken);
+
+                if (!reachedEnd)
+                {
+                    _logger.LogWarning(
+                        "HubSpot incremental sync run {RunId} hit MaxPagesPerRun={MaxPagesPerRun} and will continue from cursor {Cursor} next run.",
+                        run.Id,
+                        _options.MaxPagesPerRun,
+                        cursor ?? "<none>");
+                }
 
                 _logger.LogInformation(
                     "HubSpot sync run {RunId} completed. Deals fetched: {DealsFetched}",
@@ -158,7 +149,7 @@ namespace WebApplication2.Services.HubSpot
                 run.FinishedUtc = DateTime.UtcNow;
 
                 var syncState = await _context.HubSpotSyncStates
-                    .FirstOrDefaultAsync(s => s.IntegrationName == "HubSpotDeals", cancellationToken);
+                    .FirstOrDefaultAsync(s => s.IntegrationName == IncrementalSyncStateName, cancellationToken);
                 if (syncState != null)
                 {
                     syncState.LastError = ex.Message;
@@ -204,10 +195,8 @@ namespace WebApplication2.Services.HubSpot
                 await ClearHubSpotImportDataAsync(cancellationToken);
 
                 string? cursor = null;
-                var pageCount = 0;
-                while (pageCount < _options.MaxPagesPerRun)
+                while (true)
                 {
-                    pageCount++;
                     var page = await _hubSpotClient.SearchFulfilledDealsByClosedDateRangeAsync(
                         monthStartUtc,
                         monthEndUtc,
@@ -398,9 +387,13 @@ namespace WebApplication2.Services.HubSpot
             {
                 var contestStartUtc = DateTime.SpecifyKind(contest.StartDate, DateTimeKind.Local).ToUniversalTime();
                 var contestEndUtc = DateTime.SpecifyKind(contest.EndDate, DateTimeKind.Local).ToUniversalTime();
+                var syncState = await GetOrCreateSyncStateAsync(GetContestSyncStateName(contest), cancellationToken);
+                syncState.LastAttemptUtc = DateTime.UtcNow;
+                await _context.SaveChangesAsync(cancellationToken);
 
-                string? cursor = null;
+                var cursor = syncState.LastCursor;
                 var pageCount = 0;
+                var reachedEnd = false;
 
                 while (pageCount < _options.MaxPagesPerRun)
                 {
@@ -426,13 +419,56 @@ namespace WebApplication2.Services.HubSpot
                     cursor = page.NextCursor;
                     if (string.IsNullOrWhiteSpace(cursor))
                     {
+                        reachedEnd = true;
                         break;
                     }
                 }
+
+                if (reachedEnd)
+                {
+                    syncState.LastSuccessfulSyncUtc = DateTime.UtcNow;
+                    syncState.LastCursor = null;
+                }
+                else
+                {
+                    syncState.LastCursor = cursor;
+                    _logger.LogWarning(
+                        "HubSpot contest-window sync for contest {ContestId} hit MaxPagesPerRun={MaxPagesPerRun} and will continue from cursor {Cursor} next run.",
+                        contest.Id,
+                        _options.MaxPagesPerRun,
+                        cursor ?? "<none>");
+                }
+
+                syncState.LastError = null;
+                await _context.SaveChangesAsync(cancellationToken);
             }
 
             return (fetched, imported, updated, skipped);
         }
+
+        private async Task<HubSpotSyncState> GetOrCreateSyncStateAsync(
+            string integrationName,
+            CancellationToken cancellationToken)
+        {
+            var syncState = await _context.HubSpotSyncStates
+                .FirstOrDefaultAsync(s => s.IntegrationName == integrationName, cancellationToken);
+
+            if (syncState != null)
+            {
+                return syncState;
+            }
+
+            syncState = new HubSpotSyncState
+            {
+                IntegrationName = integrationName
+            };
+
+            _context.HubSpotSyncStates.Add(syncState);
+            return syncState;
+        }
+
+        private static string GetContestSyncStateName(Contest contest)
+            => $"HubSpotDealsContest:{contest.Id}:{contest.StartDate:yyyyMMdd}:{contest.EndDate:yyyyMMdd}";
 
         private string? NormalizeSaljId(string? saljId)
         {
