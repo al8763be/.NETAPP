@@ -28,14 +28,21 @@ services:
 
       ConnectionStrings__DefaultConnection: "Server=db,1433;Database=StlForumDev;User Id=sa;Password=${SQL_SA_PASSWORD};Encrypt=False;TrustServerCertificate=True;MultipleActiveResultSets=True"
 
-      EmailSettings__SmtpHost: ""
-      EmailSettings__SmtpUsername: ""
-      EmailSettings__SmtpPassword: ""
-      EmailSettings__SmtpPort: "587"
-      EmailSettings__FromEmail: "noreply@localhost"
-      EmailSettings__FromName: "STL Forum Dev"
-      EmailSettings__DriftfragaEmail: ""
-      EmailSettings__SaljfragaEmail: ""
+      # Pass HubSpot settings from Dokploy env into the app container runtime.
+      HubSpot__Enabled: "${HubSpot__Enabled}"
+      HubSpot__BaseUrl: "${HubSpot__BaseUrl}"
+      HubSpot__AccessToken: "${HubSpot__AccessToken}"
+      HubSpot__SyncCron: "${HubSpot__SyncCron}"
+
+      # Pass email settings from Dokploy env into the app container runtime.
+      EmailSettings__SmtpHost: "${EmailSettings__SmtpHost:-}"
+      EmailSettings__SmtpUsername: "${EmailSettings__SmtpUsername:-}"
+      EmailSettings__SmtpPassword: "${EmailSettings__SmtpPassword:-}"
+      EmailSettings__SmtpPort: "${EmailSettings__SmtpPort:-587}"
+      EmailSettings__FromEmail: "${EmailSettings__FromEmail:-noreply@localhost}"
+      EmailSettings__FromName: "${EmailSettings__FromName:-STL Forum Dev}"
+      EmailSettings__DriftfragaEmail: "${EmailSettings__DriftfragaEmail:-}"
+      EmailSettings__SaljfragaEmail: "${EmailSettings__SaljfragaEmail:-}"
     expose:
       - "8080"
     restart: unless-stopped
