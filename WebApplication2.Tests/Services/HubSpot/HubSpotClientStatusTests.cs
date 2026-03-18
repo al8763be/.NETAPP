@@ -503,13 +503,44 @@ public class HubSpotClientStatusTests
         Assert.Equal("Annullerat", result.Deals[1].ContactKundstatus);
     }
 
+    [Fact]
+    public async Task SearchFulfilledDealsByClosedDateRangeAsync_SortsContactsBySaleDateDescending()
+    {
+        var contactsPayload = """{"results":[]}""";
+        string? capturedContactSearchBody = null;
+
+        var client = CreateClient(
+            dealsPayload: """{"results":[]}""",
+            contactsPayload: contactsPayload,
+            onRequestAsync: async request =>
+            {
+                if (request.Method == HttpMethod.Post &&
+                    request.RequestUri?.AbsolutePath == "/crm/v3/objects/contacts/search")
+                {
+                    capturedContactSearchBody = await request.Content!.ReadAsStringAsync();
+                }
+            });
+
+        await client.SearchFulfilledDealsByClosedDateRangeAsync(
+            new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 2, 28, 23, 59, 59, DateTimeKind.Utc),
+            afterCursor: null,
+            pageSize: 100);
+
+        Assert.NotNull(capturedContactSearchBody);
+        Assert.Contains("\"sorts\"", capturedContactSearchBody);
+        Assert.Contains("\"propertyName\":\"forsaljningsdatum\"", capturedContactSearchBody);
+        Assert.Contains("\"direction\":\"DESCENDING\"", capturedContactSearchBody);
+    }
+
     private static HubSpotClient CreateClient(
         string dealsPayload,
         string contactsPayload,
         string? associationsPayload = null,
         string? dealsBatchPayload = null,
         string? pipelinePayload = null,
-        string? dealToContactAssociationsPayload = null)
+        string? dealToContactAssociationsPayload = null,
+        Func<HttpRequestMessage, Task>? onRequestAsync = null)
     {
         var options = Options.Create(new HubSpotOptions
         {
@@ -543,7 +574,8 @@ public class HubSpotClientStatusTests
             associationsPayload,
             dealsBatchPayload,
             pipelinePayload,
-            dealToContactAssociationsPayload))
+            dealToContactAssociationsPayload,
+            onRequestAsync))
         {
             BaseAddress = new Uri("https://api.hubapi.com")
         };
@@ -557,10 +589,16 @@ public class HubSpotClientStatusTests
         string? associationsPayload = null,
         string? dealsBatchPayload = null,
         string? pipelinePayload = null,
-        string? dealToContactAssociationsPayload = null) : HttpMessageHandler
+        string? dealToContactAssociationsPayload = null,
+        Func<HttpRequestMessage, Task>? onRequestAsync = null) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            if (onRequestAsync != null)
+            {
+                onRequestAsync(request).GetAwaiter().GetResult();
+            }
+
             var path = request.RequestUri?.AbsolutePath ?? string.Empty;
             string payload;
 

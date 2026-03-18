@@ -909,6 +909,14 @@ namespace WebApplication2.Services.HubSpot
                 .Where(p => !string.IsNullOrWhiteSpace(p))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray(),
+                ["sorts"] = new object[]
+                {
+                    new
+                    {
+                        propertyName = _options.FulfilledDateProperty,
+                        direction = "DESCENDING"
+                    }
+                },
                 ["limit"] = Math.Clamp(pageSize, 1, 100)
             };
 
