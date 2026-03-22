@@ -37,16 +37,15 @@ public class PurchasePricingServiceTests
         Assert.Equal(32400m, result.StartPackageTotal);
         Assert.Equal(14790m, result.AdditionalProductsSubtotal);
         Assert.Equal(47190m, result.InternalCostSubtotal);
-        Assert.Equal(61980m, result.TotalCost);
-        Assert.Equal(56000m, result.FinalPrice);
+        Assert.Equal(47190m, result.TotalCost);
+        Assert.Equal(41210m, result.FinalPrice);
 
-        Assert.Equal(2500m, result.ProvisionBase);
+        Assert.Equal(2500m, result.ProvisionStartPackage);
         Assert.Equal(1479m, result.ProvisionAdditionalProducts);
         Assert.Equal(3979m, result.ProvisionBeforeAdjustments);
 
-        Assert.Equal(5980m, result.PriceGapBelowCost);
-        Assert.Equal(0m, result.PriceGapAboveCost);
-        Assert.Equal(6600m, result.AvailableDiscount);
+        Assert.Equal(5980m, result.BjudAmount);
+        Assert.Equal(6600m, result.BjudThreshold);
         Assert.Equal(5980m, result.AppliedDiscount);
         Assert.Equal(-1196m, result.DiscountProvisionAdjustment);
 
@@ -95,8 +94,6 @@ public class PurchasePricingServiceTests
 
         Assert.Equal(32400m, result.TotalCost);
         Assert.Equal(31400m, result.FinalPrice);
-        Assert.Equal(0m, result.PriceGapAboveCost);
-        Assert.Equal(0m, result.AboveCostProvisionBonus);
         Assert.Equal(2300m, result.TotalProvision);
     }
 
@@ -145,6 +142,105 @@ public class PurchasePricingServiceTests
         Assert.Equal(-440m, result.DiscountProvisionAdjustment);
         Assert.Equal(-60m, result.ExcessBjudProvisionAdjustment);
         Assert.Equal(2000m, result.TotalProvision);
+    }
+
+    [Fact]
+    public void Calculate_DoesNotApplyStartPackageProvisionWhenQuantityIsZero()
+    {
+        var request = new PurchasePricingRequest
+        {
+            CustomerAge = 68,
+            BjudAmount = 0,
+            Quantities = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Startpaket"] = 0,
+                ["Kamera"] = 2
+            }
+        };
+
+        var result = _sut.Calculate(request);
+
+        Assert.Equal(0m, result.StartPackageTotal);
+        Assert.Equal(0m, result.ProvisionStartPackage);
+        Assert.Equal(440m, result.ProvisionAdditionalProducts);
+        Assert.Equal(440m, result.ProvisionBeforeAdjustments);
+        Assert.Equal(4400m, result.TotalCost);
+        Assert.Equal(440m, result.TotalProvision);
+    }
+
+    [Fact]
+    public void Calculate_IncludesInstallationAsLineItemInPricingTable()
+    {
+        var request = new PurchasePricingRequest
+        {
+            CustomerAge = 68,
+            BjudAmount = 0,
+            InstallationCost = 1500,
+            Quantities = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Startpaket"] = 1
+            }
+        };
+
+        var result = _sut.Calculate(request);
+        var installationLine = result.LineItems.Single(i => i.Product == PurchasePricingService.InstallationProductName);
+
+        Assert.Equal(1500m, installationLine.UnitPrice);
+        Assert.Equal(1m, installationLine.Quantity);
+        Assert.Equal(1500m, installationLine.LineTotal);
+    }
+
+    [Fact]
+    public void Calculate_DoesNotLetBjudAffectInternalCostSubtotalOrThreshold()
+    {
+        var lowBjudRequest = new PurchasePricingRequest
+        {
+            CustomerAge = 68,
+            BjudAmount = 0,
+            Quantities = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Startpaket"] = 1,
+                ["Kamera"] = 2
+            }
+        };
+
+        var highBjudRequest = new PurchasePricingRequest
+        {
+            CustomerAge = 68,
+            BjudAmount = 5000,
+            Quantities = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Startpaket"] = 1,
+                ["Kamera"] = 2
+            }
+        };
+
+        var lowBjudResult = _sut.Calculate(lowBjudRequest);
+        var highBjudResult = _sut.Calculate(highBjudRequest);
+
+        Assert.Equal(lowBjudResult.InternalCostSubtotal, highBjudResult.InternalCostSubtotal);
+        Assert.Equal(lowBjudResult.BjudThreshold, highBjudResult.BjudThreshold);
+        Assert.NotEqual(lowBjudResult.FinalPrice, highBjudResult.FinalPrice);
+    }
+
+    [Fact]
+    public void Calculate_UsesTopBjudThresholdStartingAt52000WithoutOverlap()
+    {
+        var request = new PurchasePricingRequest
+        {
+            CustomerAge = 68,
+            BjudAmount = 0,
+            Quantities = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Startpaket"] = 1,
+                ["Kamera"] = 9
+            }
+        };
+
+        var result = _sut.Calculate(request);
+
+        Assert.Equal(52200m, result.InternalCostSubtotal);
+        Assert.Equal(10000m, result.BjudThreshold);
     }
 
     [Fact]

@@ -1,6 +1,6 @@
 # HubSpot Integration Status (Point of Truth)
 
-Last updated: 2026-03-18
+Last updated: 2026-03-22
 
 ## Current Source Of Truth
 
@@ -30,6 +30,19 @@ Related files:
 - `Services/HubSpot/HubSpotSyncService.cs`
 - `Services/HubSpot/HubSpotMappingService.cs`
 - `Models/HubSpotDealImport.cs`
+
+### Operational note: VPS disk growth during HubSpot catch-up
+Status: Observed
+
+- During heavy HubSpot catch-up runs on the VPS, disk usage can rise quickly even when the database size itself is moderate.
+- The main observed short-term growth source was Docker app container JSON logs, driven by verbose HTTP/EF logging during sync activity.
+- Additional storage growth comes from SQL Server transaction/log files and Docker build cache on the host.
+- Possible mitigations to apply later:
+  - reduce application log verbosity for HubSpot/EF categories
+  - run the deployed app in `Production` instead of `Development`
+  - configure Docker log rotation for the app container in the Dokploy compose
+  - prune unused Docker build cache/images during maintenance windows
+  - monitor SQL log file growth separately from app log growth
 
 ### Fulfilled and lost deal retention
 Status: Implemented
@@ -94,6 +107,21 @@ Related files:
 - `Models/UserProfileViewModel.cs`
 - `Views/Home/Profile.cshtml`
 - `Views/Home/_HubSpotDealTable.cshtml`
+
+### Dev superadmin preview seed behavior
+Status: Observed limitation
+
+- `scripts/seed_superadmin_preview_deals.sh` seeds preview `HubSpotDealImports` rows with `SaljId = <superadmin username>`, currently `devsuperadmin`.
+- Those preview rows are intended to appear on `/Home/Profile` because profile filtering matches the logged-in username directly against `SaljId`.
+- Preview rows are not protected from the active-window stale-row pruning logic.
+- If a seeded preview row has `FulfilledDateUtc` inside an active contest window and is not re-seen by a later HubSpot sweep, it is treated as stale and removed.
+- This means seeded preview deals can disappear automatically after scheduled sync runs even though the profile query itself is still correct.
+- The current prune logic assumes all rows inside the synced contest window are sync-owned HubSpot rows, which is not true for locally seeded preview data.
+
+Related files:
+- `scripts/seed_superadmin_preview_deals.sh`
+- `Services/HubSpot/HubSpotSyncService.cs`
+- `Controllers/HomeController.cs`
 
 ## Tests
 Status: Implemented and validated
