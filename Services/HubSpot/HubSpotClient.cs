@@ -188,6 +188,11 @@ namespace WebApplication2.Services.HubSpot
             return result;
         }
 
+        public Task EnrichDealsWithLineItemsAsync(
+            List<HubSpotDealRecord> deals,
+            CancellationToken cancellationToken = default)
+            => EnrichDealsWithLineItemsCoreAsync(deals, cancellationToken);
+
         private string BuildPropertiesQuery()
             => string.Join(",", BuildPropertiesList());
 
@@ -532,7 +537,7 @@ namespace WebApplication2.Services.HubSpot
 
             return results
                 .EnumerateArray()
-                .Select(result => result.TryGetProperty("id", out var idElement) ? idElement.GetString() : null)
+                .Select(result => result.TryGetProperty("id", out var idElement) ? ReadIdValue(idElement) : null)
                 .Where(id => !string.IsNullOrWhiteSpace(id))
                 .Select(id => id!.Trim())
                 .Distinct(StringComparer.Ordinal)
@@ -546,13 +551,16 @@ namespace WebApplication2.Services.HubSpot
                 return null;
             }
 
-            return idElement.ValueKind switch
+            return ReadIdValue(idElement);
+        }
+
+        private static string? ReadIdValue(JsonElement idElement)
+            => idElement.ValueKind switch
             {
                 JsonValueKind.String => idElement.GetString(),
                 JsonValueKind.Number => idElement.GetRawText(),
                 _ => null
             };
-        }
 
         private static bool IsPrimaryAssociation(JsonElement association)
         {
@@ -581,7 +589,7 @@ namespace WebApplication2.Services.HubSpot
             return false;
         }
 
-        private async Task EnrichDealsWithLineItemsAsync(
+        private async Task EnrichDealsWithLineItemsCoreAsync(
             List<HubSpotDealRecord> deals,
             CancellationToken cancellationToken)
         {
@@ -589,6 +597,14 @@ namespace WebApplication2.Services.HubSpot
             {
                 return;
             }
+
+            var fallbackDealIds = deals
+                .Where(d => !string.IsNullOrWhiteSpace(d.ExternalDealId))
+                .Where(d => d.LineItemIds.All(id => string.IsNullOrWhiteSpace(id)))
+                .Select(d => d.ExternalDealId.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            var associatedLineItemIdsByDealId = await GetAssociatedLineItemIdsByDealIdAsync(fallbackDealIds, cancellationToken);
 
             var lineItemIdsByDealId = new Dictionary<string, List<string>>(StringComparer.Ordinal);
             foreach (var deal in deals)
@@ -606,7 +622,8 @@ namespace WebApplication2.Services.HubSpot
 
                 if (lineItemIds.Count == 0)
                 {
-                    lineItemIds = await GetAssociatedLineItemIdsForDealAsync(deal.ExternalDealId, cancellationToken);
+                    associatedLineItemIdsByDealId.TryGetValue(deal.ExternalDealId, out lineItemIds);
+                    lineItemIds ??= new List<string>();
                 }
 
                 if (lineItemIds.Count == 0)
@@ -664,6 +681,104 @@ namespace WebApplication2.Services.HubSpot
             }
         }
 
+        private async Task<Dictionary<string, List<string>>> GetAssociatedLineItemIdsByDealIdAsync(
+            IReadOnlyCollection<string> dealIds,
+            CancellationToken cancellationToken)
+        {
+            var result = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            if (dealIds.Count == 0)
+            {
+                return result;
+            }
+
+            const int chunkSize = 100;
+            var allIds = dealIds
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+            for (var index = 0; index < allIds.Count; index += chunkSize)
+            {
+                var chunk = allIds.Skip(index).Take(chunkSize).ToList();
+                var requestBody = new Dictionary<string, object?>
+                {
+                    ["inputs"] = chunk.Select(id => new Dictionary<string, string> { ["id"] = id }).ToArray()
+                };
+
+                using var request = new HttpRequestMessage(HttpMethod.Post, "/crm/v4/associations/deals/line_items/batch/read")
+                {
+                    Content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json")
+                };
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.AccessToken);
+
+                using var response = await _httpClient.SendAsync(request, cancellationToken);
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning(
+                        "HubSpot deal->line-item association batch read failed with status code {StatusCode}",
+                        (int)response.StatusCode);
+                    continue;
+                }
+
+                var payload = await response.Content.ReadAsStringAsync(cancellationToken);
+                using var document = JsonDocument.Parse(payload);
+                var root = document.RootElement;
+
+                if (!root.TryGetProperty("results", out var rows) || rows.ValueKind != JsonValueKind.Array)
+                {
+                    continue;
+                }
+
+                foreach (var row in rows.EnumerateArray())
+                {
+                    if (!row.TryGetProperty("from", out var fromElement) ||
+                        fromElement.ValueKind != JsonValueKind.Object ||
+                        !fromElement.TryGetProperty("id", out var fromIdElement))
+                    {
+                        continue;
+                    }
+
+                    var dealId = ReadIdValue(fromIdElement);
+                    if (string.IsNullOrWhiteSpace(dealId) ||
+                        !row.TryGetProperty("to", out var toElement) ||
+                        toElement.ValueKind != JsonValueKind.Array)
+                    {
+                        continue;
+                    }
+
+                    var lineItemIds = toElement
+                        .EnumerateArray()
+                        .Select(ReadAssociationObjectId)
+                        .Where(id => !string.IsNullOrWhiteSpace(id))
+                        .Select(id => id!.Trim())
+                        .Distinct(StringComparer.Ordinal)
+                        .ToList();
+
+                    if (lineItemIds.Count > 0)
+                    {
+                        result[dealId] = lineItemIds;
+                    }
+                }
+            }
+
+            foreach (var dealId in allIds)
+            {
+                if (result.ContainsKey(dealId))
+                {
+                    continue;
+                }
+
+                var fallbackLineItemIds = await GetAssociatedLineItemIdsForDealAsync(dealId, cancellationToken);
+                if (fallbackLineItemIds.Count > 0)
+                {
+                    result[dealId] = fallbackLineItemIds;
+                }
+            }
+
+            return result;
+        }
+
         private async Task<List<string>> GetAssociatedLineItemIdsForDealAsync(
             string dealId,
             CancellationToken cancellationToken)
@@ -714,74 +829,86 @@ namespace WebApplication2.Services.HubSpot
                 return new Dictionary<string, LineItemFieldValues>(StringComparer.Ordinal);
             }
 
-            var requestBody = new Dictionary<string, object?>
-            {
-                ["properties"] = new[]
-                {
-                    _options.LineItemNameProperty,
-                    _options.LineItemQuantityProperty,
-                    _options.LineItemPriceProperty,
-                    _options.LineItemAmountProperty,
-                    _options.LineItemSkuProperty
-                }
-                .Where(p => !string.IsNullOrWhiteSpace(p))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray(),
-                ["inputs"] = lineItemIds.Select(id => new Dictionary<string, string> { ["id"] = id }).ToArray()
-            };
-
-            using var request = new HttpRequestMessage(HttpMethod.Post, "/crm/v3/objects/line_items/batch/read")
-            {
-                Content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json")
-            };
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.AccessToken);
-
-            using var response = await _httpClient.SendAsync(request, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogWarning(
-                    "HubSpot line-item batch read failed with status code {StatusCode}",
-                    (int)response.StatusCode);
-                return new Dictionary<string, LineItemFieldValues>(StringComparer.Ordinal);
-            }
-
-            var payload = await response.Content.ReadAsStringAsync(cancellationToken);
-            using var document = JsonDocument.Parse(payload);
-            var root = document.RootElement;
             var result = new Dictionary<string, LineItemFieldValues>(StringComparer.Ordinal);
-
-            if (!root.TryGetProperty("results", out var rows) || rows.ValueKind != JsonValueKind.Array)
+            var properties = new[]
             {
-                return result;
+                _options.LineItemNameProperty,
+                _options.LineItemQuantityProperty,
+                _options.LineItemPriceProperty,
+                _options.LineItemAmountProperty,
+                _options.LineItemSkuProperty
             }
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+            const int chunkSize = 100;
+            var allIds = lineItemIds
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
 
-            foreach (var row in rows.EnumerateArray())
+            for (var index = 0; index < allIds.Count; index += chunkSize)
             {
-                if (!row.TryGetProperty("id", out var idElement) || idElement.ValueKind != JsonValueKind.String)
+                var chunk = allIds.Skip(index).Take(chunkSize).ToList();
+                var requestBody = new Dictionary<string, object?>
                 {
-                    continue;
-                }
-
-                var lineItemId = idElement.GetString();
-                if (string.IsNullOrWhiteSpace(lineItemId))
-                {
-                    continue;
-                }
-
-                if (!row.TryGetProperty("properties", out var properties) || properties.ValueKind != JsonValueKind.Object)
-                {
-                    continue;
-                }
-
-                result[lineItemId] = new LineItemFieldValues
-                {
-                    LineItemId = lineItemId,
-                    Name = ReadPropertyString(properties, _options.LineItemNameProperty),
-                    Quantity = ParseNullableDecimal(ReadPropertyString(properties, _options.LineItemQuantityProperty)),
-                    Price = ParseNullableDecimal(ReadPropertyString(properties, _options.LineItemPriceProperty)),
-                    Amount = ParseNullableDecimal(ReadPropertyString(properties, _options.LineItemAmountProperty)),
-                    Sku = ReadPropertyString(properties, _options.LineItemSkuProperty)
+                    ["properties"] = properties,
+                    ["inputs"] = chunk.Select(id => new Dictionary<string, string> { ["id"] = id }).ToArray()
                 };
+
+                using var request = new HttpRequestMessage(HttpMethod.Post, "/crm/v3/objects/line_items/batch/read")
+                {
+                    Content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json")
+                };
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.AccessToken);
+
+                using var response = await _httpClient.SendAsync(request, cancellationToken);
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning(
+                        "HubSpot line-item batch read failed with status code {StatusCode}",
+                        (int)response.StatusCode);
+                    continue;
+                }
+
+                var payload = await response.Content.ReadAsStringAsync(cancellationToken);
+                using var document = JsonDocument.Parse(payload);
+                var root = document.RootElement;
+
+                if (!root.TryGetProperty("results", out var rows) || rows.ValueKind != JsonValueKind.Array)
+                {
+                    continue;
+                }
+
+                foreach (var row in rows.EnumerateArray())
+                {
+                    if (!row.TryGetProperty("id", out var idElement) || idElement.ValueKind != JsonValueKind.String)
+                    {
+                        continue;
+                    }
+
+                    var lineItemId = idElement.GetString();
+                    if (string.IsNullOrWhiteSpace(lineItemId))
+                    {
+                        continue;
+                    }
+
+                    if (!row.TryGetProperty("properties", out var rowProperties) || rowProperties.ValueKind != JsonValueKind.Object)
+                    {
+                        continue;
+                    }
+
+                    result[lineItemId] = new LineItemFieldValues
+                    {
+                        LineItemId = lineItemId,
+                        Name = ReadPropertyString(rowProperties, _options.LineItemNameProperty),
+                        Quantity = ParseNullableDecimal(ReadPropertyString(rowProperties, _options.LineItemQuantityProperty)),
+                        Price = ParseNullableDecimal(ReadPropertyString(rowProperties, _options.LineItemPriceProperty)),
+                        Amount = ParseNullableDecimal(ReadPropertyString(rowProperties, _options.LineItemAmountProperty)),
+                        Sku = ReadPropertyString(rowProperties, _options.LineItemSkuProperty)
+                    };
+                }
             }
 
             return result;
@@ -1161,9 +1288,9 @@ namespace WebApplication2.Services.HubSpot
             => ReadAssociatedIds(item, "contacts");
 
         private static List<string> ReadAssociatedLineItemIds(JsonElement item)
-            => ReadAssociatedIds(item, "line_items");
+            => ReadAssociatedIds(item, "line_items", "line items");
 
-        private static List<string> ReadAssociatedIds(JsonElement item, string associationName)
+        private static List<string> ReadAssociatedIds(JsonElement item, params string[] associationNames)
         {
             if (!item.TryGetProperty("associations", out var associationsElement) ||
                 associationsElement.ValueKind != JsonValueKind.Object)
@@ -1171,8 +1298,24 @@ namespace WebApplication2.Services.HubSpot
                 return new List<string>();
             }
 
-            if (!associationsElement.TryGetProperty(associationName, out var associationElement) ||
-                associationElement.ValueKind != JsonValueKind.Object)
+            JsonElement associationElement = default;
+            var foundAssociation = false;
+            foreach (var associationName in associationNames)
+            {
+                if (string.IsNullOrWhiteSpace(associationName))
+                {
+                    continue;
+                }
+
+                if (associationsElement.TryGetProperty(associationName, out associationElement) &&
+                    associationElement.ValueKind == JsonValueKind.Object)
+                {
+                    foundAssociation = true;
+                    break;
+                }
+            }
+
+            if (!foundAssociation)
             {
                 return new List<string>();
             }
@@ -1185,7 +1328,20 @@ namespace WebApplication2.Services.HubSpot
 
             return resultsElement
                 .EnumerateArray()
-                .Select(row => row.TryGetProperty("id", out var idElement) ? idElement.GetString() : null)
+                .Select(row =>
+                {
+                    if (!row.TryGetProperty("id", out var idElement))
+                    {
+                        return null;
+                    }
+
+                    return idElement.ValueKind switch
+                    {
+                        JsonValueKind.String => idElement.GetString(),
+                        JsonValueKind.Number => idElement.GetRawText(),
+                        _ => null
+                    };
+                })
                 .Where(id => !string.IsNullOrWhiteSpace(id))
                 .Select(id => id!.Trim())
                 .Distinct(StringComparer.Ordinal)

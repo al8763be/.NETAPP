@@ -117,6 +117,76 @@ public class HubSpotSyncServiceTests
     }
 
     [Fact]
+    public async Task BackfillLineItemsAsync_UpdatesOnlyMatchingDealsWithoutClearingImportedRows()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        var nowUtc = new DateTime(2026, 3, 22, 12, 0, 0, DateTimeKind.Utc);
+
+        env.Context.HubSpotDealImports.AddRange(
+            new HubSpotDealImport
+            {
+                ExternalDealId = "missing-line-items",
+                SaljId = "5555",
+                OwnerEmail = "5555@stl.nu",
+                FulfilledDateUtc = nowUtc,
+                FirstSeenUtc = nowUtc,
+                LastSeenUtc = nowUtc,
+                LineItemsJson = null
+            },
+            new HubSpotDealImport
+            {
+                ExternalDealId = "already-hydrated",
+                SaljId = "5555",
+                OwnerEmail = "5555@stl.nu",
+                FulfilledDateUtc = nowUtc,
+                FirstSeenUtc = nowUtc,
+                LastSeenUtc = nowUtc,
+                LineItemsJson = """[{"LineItemId":"existing"}]"""
+            });
+        await env.Context.SaveChangesAsync();
+
+        var client = new FakeHubSpotClient(
+            enrichDealsWithLineItemsAsync: deals =>
+            {
+                var deal = Assert.Single(deals);
+                Assert.Equal("missing-line-items", deal.ExternalDealId);
+                deal.LineItems =
+                [
+                    new HubSpotDealLineItemRecord
+                    {
+                        LineItemId = "line-item-1",
+                        Name = "Kamera",
+                        Quantity = 1,
+                        Price = 2200,
+                        Amount = 2200,
+                        Sku = "CAM-01"
+                    }
+                ];
+
+                return Task.CompletedTask;
+            });
+
+        var sut = CreateSut(env, client);
+
+        var result = await sut.BackfillLineItemsAsync(
+            fulfilledDateFromUtc: new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc),
+            fulfilledDateToUtc: new DateTime(2026, 3, 31, 23, 59, 59, DateTimeKind.Utc),
+            missingOnly: true);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.DealsFetched);
+        Assert.Equal(1, result.DealsUpdated);
+
+        var deals = await env.Context.HubSpotDealImports
+            .OrderBy(d => d.ExternalDealId)
+            .ToListAsync();
+
+        Assert.Equal(2, deals.Count);
+        Assert.Contains("\"LineItemId\":\"line-item-1\"", deals.Single(d => d.ExternalDealId == "missing-line-items").LineItemsJson);
+        Assert.Equal("""[{"LineItemId":"existing"}]""", deals.Single(d => d.ExternalDealId == "already-hydrated").LineItemsJson);
+    }
+
+    [Fact]
     public async Task RunIncrementalSyncAsync_SkipsDealWhenSaljIdIsMissing()
     {
         using var env = TestIdentityEnvironment.Create();

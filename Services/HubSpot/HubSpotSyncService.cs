@@ -276,6 +276,113 @@ namespace WebApplication2.Services.HubSpot
             }
         }
 
+        public async Task<HubSpotSyncRunResult> BackfillLineItemsAsync(
+            DateTime? fulfilledDateFromUtc = null,
+            DateTime? fulfilledDateToUtc = null,
+            bool missingOnly = true,
+            CancellationToken cancellationToken = default)
+        {
+            if (!_options.Enabled)
+            {
+                return new HubSpotSyncRunResult
+                {
+                    Succeeded = true,
+                    Message = "HubSpot sync is disabled in configuration."
+                };
+            }
+
+            var query = _context.HubSpotDealImports.AsQueryable();
+            if (fulfilledDateFromUtc.HasValue)
+            {
+                query = query.Where(d => d.FulfilledDateUtc >= fulfilledDateFromUtc.Value);
+            }
+
+            if (fulfilledDateToUtc.HasValue)
+            {
+                query = query.Where(d => d.FulfilledDateUtc <= fulfilledDateToUtc.Value);
+            }
+
+            if (missingOnly)
+            {
+                query = query.Where(d => d.LineItemsJson == null || d.LineItemsJson == string.Empty);
+            }
+
+            var candidateIds = await query
+                .OrderByDescending(d => d.FulfilledDateUtc)
+                .Select(d => d.Id)
+                .ToListAsync(cancellationToken);
+
+            if (candidateIds.Count == 0)
+            {
+                return new HubSpotSyncRunResult
+                {
+                    Succeeded = true,
+                    Message = "No HubSpot deals matched the requested line-item backfill scope."
+                };
+            }
+
+            const int chunkSize = 100;
+            var updated = 0;
+            var skipped = 0;
+
+            for (var index = 0; index < candidateIds.Count; index += chunkSize)
+            {
+                var idChunk = candidateIds.Skip(index).Take(chunkSize).ToList();
+                var rows = await _context.HubSpotDealImports
+                    .Where(d => idChunk.Contains(d.Id))
+                    .ToListAsync(cancellationToken);
+
+                var deals = rows
+                    .Where(row => !string.IsNullOrWhiteSpace(row.ExternalDealId))
+                    .Select(row => new HubSpotDealRecord
+                    {
+                        ExternalDealId = row.ExternalDealId
+                    })
+                    .ToList();
+
+                await _hubSpotClient.EnrichDealsWithLineItemsAsync(deals, cancellationToken);
+
+                var dealsByExternalId = deals
+                    .Where(d => !string.IsNullOrWhiteSpace(d.ExternalDealId))
+                    .ToDictionary(d => d.ExternalDealId, StringComparer.Ordinal);
+
+                var batchUpdated = false;
+                foreach (var row in rows)
+                {
+                    if (!dealsByExternalId.TryGetValue(row.ExternalDealId, out var deal))
+                    {
+                        skipped++;
+                        continue;
+                    }
+
+                    var serializedLineItems = SerializeLineItems(deal.LineItems);
+                    if (serializedLineItems == null || string.Equals(serializedLineItems, row.LineItemsJson, StringComparison.Ordinal))
+                    {
+                        skipped++;
+                        continue;
+                    }
+
+                    row.LineItemsJson = serializedLineItems;
+                    updated++;
+                    batchUpdated = true;
+                }
+
+                if (batchUpdated)
+                {
+                    await _context.SaveChangesAsync(cancellationToken);
+                }
+            }
+
+            return new HubSpotSyncRunResult
+            {
+                Succeeded = true,
+                DealsFetched = candidateIds.Count,
+                DealsUpdated = updated,
+                DealsSkipped = skipped,
+                Message = $"HubSpot line-item backfill completed for {candidateIds.Count} deal(s)."
+            };
+        }
+
         private async Task<(int Imported, int Updated, int Skipped)> UpsertDealAsync(
             HubSpotDealRecord deal,
             CancellationToken cancellationToken)

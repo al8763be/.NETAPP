@@ -108,6 +108,45 @@ Related files:
 - `Views/Home/Profile.cshtml`
 - `Views/Home/_HubSpotDealTable.cshtml`
 
+### Line-item persistence and backfill
+Status: Implemented and validated
+
+- On March 22, 2026, a live regression was confirmed where many March 2026 `HubSpotDealImports` rows were stored with `LineItemsJson = NULL` even though the corresponding HubSpot deals had associated line items.
+- Two concrete causes were identified:
+  - embedded deal associations from HubSpot used `associations["line items"]` while the client only parsed `associations["line_items"]`
+  - the line-item batch read path was sending oversized `line_items/batch/read` requests, which caused HubSpot `400` failures during hydration/backfill
+- The client now:
+  - accepts both `line_items` and `line items` association keys
+  - batch-reads deal to line-item associations through `/crm/v4/associations/deals/line_items/batch/read`
+  - chunks `/crm/v3/objects/line_items/batch/read` requests so large backfills do not fail
+- A non-destructive maintenance command now exists:
+  - `--hubspot-backfill-line-items`
+  - this updates only `HubSpotDealImports.LineItemsJson`
+  - it does not clear `HubSpotDealImports`
+  - it does not clear `ContestEntries`
+  - it does not modify incremental sync cursor/watermark state
+- Verified in dev on March 22, 2026 with:
+  - `docker exec -it netapp-dev-app dotnet run --project WebApplication2.csproj -- --hubspot-backfill-line-items --from 2026-03-01 --to 2026-03-31`
+- Verified VPS/Dokploy container command:
+  - `docker exec -it intranet-app-amftl3-app-1 dotnet WebApplication2.dll --hubspot-backfill-line-items --from 2026-03-01 --to 2026-03-31`
+- Observed dev result on March 22, 2026:
+  - `Candidates=446`
+  - `Updated=442`
+  - `Skipped=4`
+- The 4 remaining March 2026 rows without stored line items after backfill were:
+  - `494473656520`
+  - `494058191040`
+  - `494058957046`
+  - `486201035994`
+- At least some of those remaining rows return no line-item associations from HubSpot, so the remaining nulls appear to be upstream data gaps rather than a persistence bug.
+
+Related files:
+- `Services/HubSpot/HubSpotClient.cs`
+- `Services/HubSpot/HubSpotSyncService.cs`
+- `Services/HubSpot/IHubSpotClient.cs`
+- `Services/HubSpot/IHubSpotSyncService.cs`
+- `Program.cs`
+
 ### Dev superadmin preview seed behavior
 Status: Observed limitation
 

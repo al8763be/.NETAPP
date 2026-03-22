@@ -15,6 +15,8 @@ namespace WebApplication2.Controllers
     public class HomeController : Controller
     {
         private const string RememberedEmployeeNumberCookieName = "RememberedEmployeeNumber";
+        private const string DevSuperAdminUsername = "devsuperadmin";
+        private const string DevSuperAdminPreviewSaljId = "2875";
         private static readonly Regex EmployeeNumberPattern = new(@"^\d{4}$", RegexOptions.Compiled);
         private static readonly string[] SupportedRegions =
         {
@@ -606,6 +608,7 @@ namespace WebApplication2.Controllers
 
             var roles = await _userManager.GetRolesAsync(user);
             var username = (user.UserName ?? string.Empty).Trim();
+            var profileSaljId = ResolveProfileSaljId(username);
             var selectedMonthOffset = monthOffset == UserProfileViewModel.PreviousMonthOffset
                 ? UserProfileViewModel.PreviousMonthOffset
                 : UserProfileViewModel.CurrentMonthOffset;
@@ -617,7 +620,7 @@ namespace WebApplication2.Controllers
             var periodDealRows = await _context.HubSpotDealImports
                 .AsNoTracking()
                 .Where(d =>
-                    d.SaljId == username &&
+                    d.SaljId == profileSaljId &&
                     d.FulfilledDateUtc >= monthStartUtc &&
                     d.FulfilledDateUtc < monthEndUtc)
                 .OrderByDescending(d => d.FulfilledDateUtc)
@@ -657,6 +660,13 @@ namespace WebApplication2.Controllers
             };
 
             return View(model);
+        }
+
+        private static string ResolveProfileSaljId(string username)
+        {
+            return username.Equals(DevSuperAdminUsername, StringComparison.OrdinalIgnoreCase)
+                ? DevSuperAdminPreviewSaljId
+                : username;
         }
 
         private static UserHubSpotDealViewModel MapDeal(HubSpotDealImport deal)

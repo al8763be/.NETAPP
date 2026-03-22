@@ -256,6 +256,72 @@ public class HomeControllerProfileTests
         Assert.Equal(new[] { "prev-annullerat", "prev-lost", "prev-winback", "prev-saljare" }, model.SelectedPeriodLostDeals.Select(d => d.ExternalDealId).ToArray());
     }
 
+    [Fact]
+    public async Task Profile_DevSuperAdmin_UsesPreviewSaljId2875()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        var devSuperAdmin = await env.CreateUserAsync("devsuperadmin", "devsuperadmin@localhost");
+
+        var monthStartUtc = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        env.Context.HubSpotDealImports.AddRange(
+            new HubSpotDealImport
+            {
+                ExternalDealId = "preview-2875",
+                DealName = "Preview mapped deal",
+                OwnerEmail = "2875@stl.nu",
+                SaljId = "2875",
+                IsFulfilled = true,
+                FulfilledDateUtc = monthStartUtc.AddDays(2),
+                Amount = 420m,
+                SellerProvision = 42m,
+                CurrencyCode = "SEK",
+                FirstSeenUtc = DateTime.UtcNow,
+                LastSeenUtc = DateTime.UtcNow
+            },
+            new HubSpotDealImport
+            {
+                ExternalDealId = "preview-devsuperadmin",
+                DealName = "Should not be used directly",
+                OwnerEmail = "devsuperadmin@localhost",
+                OwnerUserId = devSuperAdmin.Id,
+                SaljId = "devsuperadmin",
+                IsFulfilled = true,
+                FulfilledDateUtc = monthStartUtc.AddDays(3),
+                Amount = 999m,
+                SellerProvision = 99m,
+                CurrencyCode = "SEK",
+                FirstSeenUtc = DateTime.UtcNow,
+                LastSeenUtc = DateTime.UtcNow
+            });
+
+        await env.Context.SaveChangesAsync();
+
+        var controller = new HomeController(
+            env.Context,
+            NullLogger<HomeController>.Instance,
+            env.UserManager,
+            env.SignInManager,
+            env.RoleManager)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = BuildPrincipal(devSuperAdmin.Id, devSuperAdmin.UserName ?? "devsuperadmin")
+                }
+            }
+        };
+
+        var actionResult = await controller.Profile();
+
+        var viewResult = Assert.IsType<ViewResult>(actionResult);
+        var model = Assert.IsType<UserProfileViewModel>(viewResult.Model);
+
+        Assert.Equal("devsuperadmin", model.Username);
+        Assert.Equal(new[] { "preview-2875" }, model.SelectedPeriodDeals.Select(d => d.ExternalDealId).ToArray());
+    }
+
     private static ClaimsPrincipal BuildPrincipal(string userId, string userName)
     {
         var identity = new ClaimsIdentity(

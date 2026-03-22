@@ -4,6 +4,11 @@ namespace WebApplication2.Services.HubSpot
     {
         Task<HubSpotSyncRunResult> RunIncrementalSyncAsync(CancellationToken cancellationToken = default);
         Task<HubSpotSyncRunResult> RebuildCurrentMonthOnlyAsync(CancellationToken cancellationToken = default);
+        Task<HubSpotSyncRunResult> BackfillLineItemsAsync(
+            DateTime? fulfilledDateFromUtc = null,
+            DateTime? fulfilledDateToUtc = null,
+            bool missingOnly = true,
+            CancellationToken cancellationToken = default);
     }
 
     public class HubSpotSyncRunResult

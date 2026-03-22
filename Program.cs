@@ -374,7 +374,71 @@ if (args.Any(a => a.Equals("--hubspot-rebuild-current-month", StringComparison.O
     return;
 }
 
+if (args.Any(a => a.Equals("--hubspot-backfill-line-items", StringComparison.OrdinalIgnoreCase)))
+{
+    using var scope = app.Services.CreateScope();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    var syncService = scope.ServiceProvider.GetRequiredService<IHubSpotSyncService>();
+
+    var fromUtc = ReadOptionalUtcDateArg(args, "--from", endOfDay: false);
+    var toUtc = ReadOptionalUtcDateArg(args, "--to", endOfDay: true);
+    var missingOnly = !args.Any(a => a.Equals("--all", StringComparison.OrdinalIgnoreCase));
+
+    logger.LogInformation(
+        "Running HubSpot line-item backfill. MissingOnly={MissingOnly}, FromUtc={FromUtc}, ToUtc={ToUtc}",
+        missingOnly,
+        fromUtc,
+        toUtc);
+
+    var result = await syncService.BackfillLineItemsAsync(fromUtc, toUtc, missingOnly);
+
+    if (!result.Succeeded)
+    {
+        logger.LogError(
+            "HubSpot line-item backfill failed. Message: {Message}",
+            result.Message);
+        Environment.ExitCode = 1;
+    }
+    else
+    {
+        logger.LogInformation(
+            "HubSpot line-item backfill succeeded. Candidates={Fetched}, Updated={Updated}, Skipped={Skipped}",
+            result.DealsFetched,
+            result.DealsUpdated,
+            result.DealsSkipped);
+    }
+
+    return;
+}
+
 app.Run();
+
+static DateTime? ReadOptionalUtcDateArg(string[] args, string name, bool endOfDay)
+{
+    for (var i = 0; i < args.Length - 1; i++)
+    {
+        if (!args[i].Equals(name, StringComparison.OrdinalIgnoreCase))
+        {
+            continue;
+        }
+
+        if (!DateTime.TryParseExact(
+                args[i + 1],
+                "yyyy-MM-dd",
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None,
+                out var parsedDate))
+        {
+            throw new InvalidOperationException($"Invalid value for {name}. Expected yyyy-MM-dd.");
+        }
+
+        return endOfDay
+            ? new DateTime(parsedDate.Year, parsedDate.Month, parsedDate.Day, 23, 59, 59, 999, DateTimeKind.Utc)
+            : new DateTime(parsedDate.Year, parsedDate.Month, parsedDate.Day, 0, 0, 0, DateTimeKind.Utc);
+    }
+
+    return null;
+}
 
 static void LoadDotEnvIfPresent()
 {

@@ -14,6 +14,10 @@ namespace WebApplication2.Services.HubSpot
             string? afterCursor,
             int pageSize,
             CancellationToken cancellationToken = default);
+
+        Task EnrichDealsWithLineItemsAsync(
+            List<HubSpotDealRecord> deals,
+            CancellationToken cancellationToken = default);
     }
 
     public class HubSpotDealRecord

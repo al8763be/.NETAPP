@@ -281,6 +281,188 @@ public class HubSpotClientStatusTests
         Assert.Equal(new[] { "contact-primary" }, deal.ContactIds);
     }
 
+    [Fact]
+    public async Task GetFulfilledDealsAsync_ReadsLineItemsFromEmbeddedAssociationKeyWithSpace()
+    {
+        var dealsPayload = """
+        {
+          "results": [
+            {
+              "id": "deal-line-items",
+              "properties": {
+                "dealname": "Deal with line items",
+                "dealstage": "klar kund",
+                "closedate": "1739980800000",
+                "hs_lastmodifieddate": "1739980800000",
+                "amount": "1500",
+                "deal_currency_code": "SEK"
+              },
+              "associations": {
+                "line items": {
+                  "results": [
+                    { "id": "line-item-1" }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+        """;
+
+        var lineItemsBatchPayload = """
+        {
+          "results": [
+            {
+              "id": "line-item-1",
+              "properties": {
+                "name": "Kamera",
+                "quantity": "2",
+                "price": "2200",
+                "amount": "4400",
+                "hs_sku": "CAM-01"
+              }
+            }
+          ]
+        }
+        """;
+
+        var client = CreateClient(
+            dealsPayload,
+            contactsPayload: """{"results":[]}""",
+            lineItemsBatchPayload: lineItemsBatchPayload);
+
+        var result = await client.GetFulfilledDealsAsync(null, null, 100);
+
+        var deal = Assert.Single(result.Deals);
+        var lineItem = Assert.Single(deal.LineItems);
+        Assert.Equal("line-item-1", lineItem.LineItemId);
+        Assert.Equal("Kamera", lineItem.Name);
+        Assert.Equal(2m, lineItem.Quantity);
+        Assert.Equal(2200m, lineItem.Price);
+        Assert.Equal(4400m, lineItem.Amount);
+        Assert.Equal("CAM-01", lineItem.Sku);
+    }
+
+    [Fact]
+    public async Task SearchFulfilledDealsByClosedDateRangeAsync_LoadsLineItemsFromAssociationLookup()
+    {
+        var contactsPayload = """
+        {
+          "results": [
+            {
+              "id": "contact-1",
+              "properties": {
+                "saljare": "2875",
+                "forsaljningsdatum": "2026-03-20",
+                "kundstatus": "Nyregistrerad"
+              }
+            }
+          ]
+        }
+        """;
+
+        var associationsPayload = """
+        {
+          "results": [
+            {
+              "from": { "id": "contact-1" },
+              "to": [ { "toObjectId": 9001 } ]
+            }
+          ]
+        }
+        """;
+
+        var dealsBatchPayload = """
+        {
+          "results": [
+            {
+              "id": "9001",
+              "properties": {
+                "dealname": "Contest-window deal",
+                "dealstage": "qualifiedtobuy",
+                "closedate": "1742428800000",
+                "hs_lastmodifieddate": "1742428800000",
+                "amount": "100",
+                "deal_currency_code": "SEK"
+              }
+            }
+          ]
+        }
+        """;
+
+        var lineItemAssociationsPayload = """
+        {
+          "results": [
+            { "id": "line-item-42" }
+          ]
+        }
+        """;
+
+        var lineItemsBatchPayload = """
+        {
+          "results": [
+            {
+              "id": "line-item-42",
+              "properties": {
+                "name": "Rökdetektor",
+                "quantity": "1",
+                "price": "2000",
+                "amount": "2000",
+                "hs_sku": "SMK-01"
+              }
+            }
+          ]
+        }
+        """;
+
+        var dealToContactAssociationsPayload = """
+        {
+          "results": [
+            {
+              "from": { "id": "9001" },
+              "to": [ { "toObjectId": "contact-1" } ]
+            }
+          ]
+        }
+        """;
+
+        var pipelinePayload = """
+        {
+          "results": [
+            {
+              "id": "default",
+              "label": "Sales Pipeline",
+              "stages": [
+                { "id": "qualifiedtobuy", "label": "Nyregistrerad" }
+              ]
+            }
+          ]
+        }
+        """;
+
+        var client = CreateClient(
+            dealsPayload: """{"results":[]}""",
+            contactsPayload: contactsPayload,
+            associationsPayload: associationsPayload,
+            dealsBatchPayload: dealsBatchPayload,
+            pipelinePayload: pipelinePayload,
+            dealToContactAssociationsPayload: dealToContactAssociationsPayload,
+            lineItemAssociationsPayload: lineItemAssociationsPayload,
+            lineItemsBatchPayload: lineItemsBatchPayload);
+
+        var result = await client.SearchFulfilledDealsByClosedDateRangeAsync(
+            new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 3, 31, 23, 59, 59, DateTimeKind.Utc),
+            afterCursor: null,
+            pageSize: 100);
+
+        var deal = Assert.Single(result.Deals);
+        var lineItem = Assert.Single(deal.LineItems);
+        Assert.Equal("line-item-42", lineItem.LineItemId);
+        Assert.Equal("Rökdetektor", lineItem.Name);
+        Assert.Equal(1m, lineItem.Quantity);
+    }
+
     [Theory]
     [InlineData("Avslag")]
     [InlineData("Annullerat")]
@@ -540,6 +722,8 @@ public class HubSpotClientStatusTests
         string? dealsBatchPayload = null,
         string? pipelinePayload = null,
         string? dealToContactAssociationsPayload = null,
+        string? lineItemAssociationsPayload = null,
+        string? lineItemsBatchPayload = null,
         Func<HttpRequestMessage, Task>? onRequestAsync = null)
     {
         var options = Options.Create(new HubSpotOptions
@@ -575,6 +759,8 @@ public class HubSpotClientStatusTests
             dealsBatchPayload,
             pipelinePayload,
             dealToContactAssociationsPayload,
+            lineItemAssociationsPayload,
+            lineItemsBatchPayload,
             onRequestAsync))
         {
             BaseAddress = new Uri("https://api.hubapi.com")
@@ -590,6 +776,8 @@ public class HubSpotClientStatusTests
         string? dealsBatchPayload = null,
         string? pipelinePayload = null,
         string? dealToContactAssociationsPayload = null,
+        string? lineItemAssociationsPayload = null,
+        string? lineItemsBatchPayload = null,
         Func<HttpRequestMessage, Task>? onRequestAsync = null) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -622,9 +810,17 @@ public class HubSpotClientStatusTests
             {
                 payload = dealToContactAssociationsPayload ?? """{"results":[]}""";
             }
+            else if (request.Method == HttpMethod.Post && path == "/crm/v4/associations/deals/line_items/batch/read")
+            {
+                payload = lineItemAssociationsPayload ?? """{"results":[]}""";
+            }
             else if (request.Method == HttpMethod.Post && path == "/crm/v3/objects/deals/batch/read")
             {
                 payload = dealsBatchPayload ?? """{"results":[]}""";
+            }
+            else if (request.Method == HttpMethod.Post && path == "/crm/v3/objects/line_items/batch/read")
+            {
+                payload = lineItemsBatchPayload ?? """{"results":[]}""";
             }
             else if (request.Method == HttpMethod.Get && path.StartsWith("/crm/v3/properties/deals/"))
             {
@@ -633,6 +829,10 @@ public class HubSpotClientStatusTests
             else if (request.Method == HttpMethod.Get && path == "/crm/v3/pipelines/deals")
             {
                 payload = pipelinePayload ?? "{\"results\":[]}";
+            }
+            else if (request.Method == HttpMethod.Get && path.Contains("/associations/line_items", StringComparison.Ordinal))
+            {
+                payload = lineItemAssociationsPayload ?? """{"results":[]}""";
             }
             else if (request.Method == HttpMethod.Get && path.Contains("/associations/contacts", StringComparison.Ordinal))
             {
