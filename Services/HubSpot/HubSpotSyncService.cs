@@ -10,6 +10,8 @@ namespace WebApplication2.Services.HubSpot
     public class HubSpotSyncService : IHubSpotSyncService
     {
         private const string IncrementalSyncStateName = "HubSpotDeals";
+        private const string CurrentMonthLiveSyncStatePrefix = "HubSpotDealsLiveMonth";
+        private const string CurrentMonthLiveSweepStatePrefix = "HubSpotDealsLiveMonthSweep";
         private readonly STLForumContext _context;
         private readonly IHubSpotClient _hubSpotClient;
         private readonly IHubSpotMappingService _mappingService;
@@ -94,11 +96,11 @@ namespace WebApplication2.Services.HubSpot
                     }
                 }
 
-                var activeContestSync = await SyncActiveContestWindowsAsync(cancellationToken);
-                run.DealsFetched += activeContestSync.Fetched;
-                run.DealsImported += activeContestSync.Imported;
-                run.DealsUpdated += activeContestSync.Updated;
-                run.DealsSkipped += activeContestSync.Skipped;
+                var liveWindowSync = await SyncLiveWindowsAsync(run.StartedUtc, cancellationToken);
+                run.DealsFetched += liveWindowSync.Fetched;
+                run.DealsImported += liveWindowSync.Imported;
+                run.DealsUpdated += liveWindowSync.Updated;
+                run.DealsSkipped += liveWindowSync.Skipped;
 
                 await NormalizeStoredDealsByKundstatusAsync(cancellationToken);
                 await RecalculateActiveContestEntriesAsync(cancellationToken);
@@ -383,6 +385,54 @@ namespace WebApplication2.Services.HubSpot
             };
         }
 
+        public async Task<HubSpotSyncRunResult> PurgeDisqualifiedDealsAsync(CancellationToken cancellationToken = default)
+        {
+            if (!_options.Enabled)
+            {
+                return new HubSpotSyncRunResult
+                {
+                    Succeeded = true,
+                    Message = "HubSpot sync is disabled in configuration."
+                };
+            }
+
+            if (_options.MinimumDealAmount <= 0)
+            {
+                return new HubSpotSyncRunResult
+                {
+                    Succeeded = true,
+                    Message = "No disqualified HubSpot deals matched the configured minimum amount rule."
+                };
+            }
+
+            var minimumDealAmount = _options.MinimumDealAmount;
+            var disqualifiedDeals = await _context.HubSpotDealImports
+                .Where(d => !d.Amount.HasValue || d.Amount.Value <= minimumDealAmount)
+                .ToListAsync(cancellationToken);
+
+            if (disqualifiedDeals.Count == 0)
+            {
+                return new HubSpotSyncRunResult
+                {
+                    Succeeded = true,
+                    Message = "No disqualified HubSpot deals matched the configured minimum amount rule."
+                };
+            }
+
+            _context.HubSpotDealImports.RemoveRange(disqualifiedDeals);
+            await _context.SaveChangesAsync(cancellationToken);
+
+            await RecalculateActiveContestEntriesAsync(cancellationToken);
+
+            return new HubSpotSyncRunResult
+            {
+                Succeeded = true,
+                DealsFetched = disqualifiedDeals.Count,
+                DealsUpdated = disqualifiedDeals.Count,
+                Message = $"Removed {disqualifiedDeals.Count} disqualified HubSpot deal(s)."
+            };
+        }
+
         private async Task<(int Imported, int Updated, int Skipped)> UpsertDealAsync(
             HubSpotDealRecord deal,
             CancellationToken cancellationToken)
@@ -397,8 +447,9 @@ namespace WebApplication2.Services.HubSpot
 
             var contactKundstatus = NormalizeOptionalText(deal.ContactKundstatus, 128);
             var shouldRetainLostDeal = HubSpotDealStatus.IsLostKundstatus(contactKundstatus);
+            var meetsMinimumDealAmount = MeetsMinimumDealAmount(deal.Amount);
 
-            if ((!deal.IsFulfilled && !shouldRetainLostDeal) || !deal.FulfilledDateUtc.HasValue)
+            if ((!deal.IsFulfilled && !shouldRetainLostDeal) || !deal.FulfilledDateUtc.HasValue || !meetsMinimumDealAmount)
             {
                 if (existing == null)
                 {
@@ -480,9 +531,15 @@ namespace WebApplication2.Services.HubSpot
             return (0, 1, 0);
         }
 
-        private async Task<(int Fetched, int Imported, int Updated, int Skipped)> SyncActiveContestWindowsAsync(
+        private async Task<(int Fetched, int Imported, int Updated, int Skipped)> SyncLiveWindowsAsync(
+            DateTime runStartedUtc,
             CancellationToken cancellationToken)
         {
+            var liveWindows = new List<HubSpotSyncWindow>
+            {
+                CreateCurrentMonthLiveWindow()
+            };
+
             var activeContests = await _context.Contests
                 .AsNoTracking()
                 .Where(c => c.IsActive && c.EndDate > DateTime.Now)
@@ -490,7 +547,9 @@ namespace WebApplication2.Services.HubSpot
 
             _logger.LogDebug("Active contest window sync candidate count: {ContestCount}", activeContests.Count);
 
-            if (!activeContests.Any())
+            liveWindows.AddRange(activeContests.Select(CreateContestLiveWindow));
+
+            if (liveWindows.Count == 0)
             {
                 return (0, 0, 0, 0);
             }
@@ -500,17 +559,15 @@ namespace WebApplication2.Services.HubSpot
             var updated = 0;
             var skipped = 0;
 
-            foreach (var contest in activeContests)
+            foreach (var window in liveWindows)
             {
-                var contestStartUtc = DateTime.SpecifyKind(contest.StartDate, DateTimeKind.Local).ToUniversalTime();
-                var contestEndUtc = DateTime.SpecifyKind(contest.EndDate, DateTimeKind.Local).ToUniversalTime();
-                var syncState = await GetOrCreateSyncStateAsync(GetContestSyncStateName(contest), cancellationToken);
-                var sweepState = await GetOrCreateSyncStateAsync(GetContestSweepStateName(contest), cancellationToken);
+                var syncState = await GetOrCreateSyncStateAsync(window.SyncStateName, cancellationToken);
+                var sweepState = await GetOrCreateSyncStateAsync(window.SweepStateName, cancellationToken);
                 var isStartingNewSweep = string.IsNullOrWhiteSpace(syncState.LastCursor);
 
                 if (isStartingNewSweep)
                 {
-                    sweepState.LastSuccessfulSyncUtc = DateTime.UtcNow;
+                    sweepState.LastSuccessfulSyncUtc = runStartedUtc;
                     sweepState.LastCursor = null;
                     sweepState.LastError = null;
                 }
@@ -528,8 +585,8 @@ namespace WebApplication2.Services.HubSpot
                     pageCount++;
 
                     var page = await _hubSpotClient.SearchFulfilledDealsByClosedDateRangeAsync(
-                        contestStartUtc,
-                        contestEndUtc,
+                        window.StartUtc,
+                        window.EndUtc,
                         cursor,
                         _options.PageSize,
                         cancellationToken);
@@ -556,8 +613,8 @@ namespace WebApplication2.Services.HubSpot
                 {
                     var sweepStartedUtc = sweepState.LastSuccessfulSyncUtc ?? DateTime.UtcNow;
                     await PruneStaleDealsForWindowAsync(
-                        contestStartUtc,
-                        contestEndUtc,
+                        window.StartUtc,
+                        window.EndUtc,
                         sweepStartedUtc,
                         cancellationToken);
                     syncState.LastSuccessfulSyncUtc = DateTime.UtcNow;
@@ -567,8 +624,8 @@ namespace WebApplication2.Services.HubSpot
                 {
                     syncState.LastCursor = cursor;
                     _logger.LogWarning(
-                        "HubSpot contest-window sync for contest {ContestId} hit MaxPagesPerRun={MaxPagesPerRun} and will continue from cursor {Cursor} next run.",
-                        contest.Id,
+                        "HubSpot live-window sync for {WindowName} hit MaxPagesPerRun={MaxPagesPerRun} and will continue from cursor {Cursor} next run.",
+                        window.LogName,
                         _options.MaxPagesPerRun,
                         cursor ?? "<none>");
                 }
@@ -579,6 +636,34 @@ namespace WebApplication2.Services.HubSpot
             }
 
             return (fetched, imported, updated, skipped);
+        }
+
+        private HubSpotSyncWindow CreateCurrentMonthLiveWindow()
+        {
+            var nowUtc = DateTime.UtcNow;
+            var monthStartUtc = new DateTime(nowUtc.Year, nowUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+            var monthEndUtc = monthStartUtc.AddMonths(1).AddTicks(-1);
+            var monthKey = monthStartUtc.ToString("yyyyMM");
+
+            return new HubSpotSyncWindow(
+                monthStartUtc,
+                monthEndUtc,
+                $"{CurrentMonthLiveSyncStatePrefix}:{monthKey}",
+                $"{CurrentMonthLiveSweepStatePrefix}:{monthKey}",
+                $"current month profile window {monthStartUtc:yyyy-MM}");
+        }
+
+        private static HubSpotSyncWindow CreateContestLiveWindow(Contest contest)
+        {
+            var contestStartUtc = DateTime.SpecifyKind(contest.StartDate, DateTimeKind.Local).ToUniversalTime();
+            var contestEndUtc = DateTime.SpecifyKind(contest.EndDate, DateTimeKind.Local).ToUniversalTime();
+
+            return new HubSpotSyncWindow(
+                contestStartUtc,
+                contestEndUtc,
+                GetContestSyncStateName(contest),
+                GetContestSweepStateName(contest),
+                $"contest {contest.Id} window");
         }
 
         private async Task<HubSpotSyncState> GetOrCreateSyncStateAsync(
@@ -634,6 +719,13 @@ namespace WebApplication2.Services.HubSpot
 
         private static string GetContestSweepStateName(Contest contest)
             => $"HubSpotDealsContestSweep:{contest.Id}:{contest.StartDate:yyyyMMdd}:{contest.EndDate:yyyyMMdd}";
+
+        private sealed record HubSpotSyncWindow(
+            DateTime StartUtc,
+            DateTime EndUtc,
+            string SyncStateName,
+            string SweepStateName,
+            string LogName);
 
         private async Task PruneStaleDealsForWindowAsync(
             DateTime contestStartUtc,
@@ -694,6 +786,16 @@ namespace WebApplication2.Services.HubSpot
             }
 
             return trimmed[..maxLength];
+        }
+
+        private bool MeetsMinimumDealAmount(decimal? amount)
+        {
+            if (_options.MinimumDealAmount <= 0)
+            {
+                return true;
+            }
+
+            return amount.HasValue && amount.Value > _options.MinimumDealAmount;
         }
 
         private static string? SerializeLineItems(IReadOnlyCollection<HubSpotDealLineItemRecord> lineItems)

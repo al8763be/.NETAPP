@@ -9,6 +9,7 @@ namespace WebApplication2.Services.HubSpot
             DateTime? fulfilledDateToUtc = null,
             bool missingOnly = true,
             CancellationToken cancellationToken = default);
+        Task<HubSpotSyncRunResult> PurgeDisqualifiedDealsAsync(CancellationToken cancellationToken = default);
     }
 
     public class HubSpotSyncRunResult

@@ -411,6 +411,32 @@ if (args.Any(a => a.Equals("--hubspot-backfill-line-items", StringComparison.Ord
     return;
 }
 
+if (args.Any(a => a.Equals("--hubspot-prune-disqualified-deals", StringComparison.OrdinalIgnoreCase)))
+{
+    using var scope = app.Services.CreateScope();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    var syncService = scope.ServiceProvider.GetRequiredService<IHubSpotSyncService>();
+
+    logger.LogInformation("Running HubSpot disqualified-deal cleanup.");
+    var result = await syncService.PurgeDisqualifiedDealsAsync();
+
+    if (!result.Succeeded)
+    {
+        logger.LogError(
+            "HubSpot disqualified-deal cleanup failed. Message: {Message}",
+            result.Message);
+        Environment.ExitCode = 1;
+    }
+    else
+    {
+        logger.LogInformation(
+            "HubSpot disqualified-deal cleanup succeeded. Removed={Removed}",
+            result.DealsUpdated);
+    }
+
+    return;
+}
+
 app.Run();
 
 static DateTime? ReadOptionalUtcDateArg(string[] args, string name, bool endOfDay)

@@ -170,7 +170,7 @@ public sealed class PurchasePricingService : IPurchasePricingService
             provisionBeforeAdjustments +
             discountProvisionAdjustment +
             excessBjudProvisionAdjustment +
-            (request.IncludeFinanceOptionProvisionInTotal ? financeOptionProvision : 0m);
+            financeOptionProvision;
 
         return new PurchasePricingResult
         {
@@ -193,7 +193,6 @@ public sealed class PurchasePricingService : IPurchasePricingService
             ExcessBjudProvisionAdjustment = excessBjudProvisionAdjustment,
             FinanceOption = request.FinanceOption,
             FinanceOptionProvision = financeOptionProvision,
-            IncludeFinanceOptionProvisionInTotal = request.IncludeFinanceOptionProvisionInTotal,
             TotalProvision = totalProvision,
             LineItems = lineItems
         };

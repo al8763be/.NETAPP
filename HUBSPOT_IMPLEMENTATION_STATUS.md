@@ -1,6 +1,6 @@
 # HubSpot Integration Status (Point of Truth)
 
-Last updated: 2026-03-22
+Last updated: 2026-04-08
 
 ## Current Source Of Truth
 
@@ -18,18 +18,29 @@ Status: Implemented
 - Incremental sync now persists its cursor and only advances `LastSuccessfulSyncUtc` after the modified-since result set is fully exhausted.
 - Incremental sync catch-up is intentionally bounded by a configurable recent lookback window, so very old modified deal backlog is skipped instead of being paged indefinitely.
 - Rebuild/current-window sync fetches contacts by `forsaljningsdatum`, resolves associated deals, and then enriches those deals from the selected associated contact.
-- Active contest window sync now persists a separate cursor per contest window so large windows continue across scheduled runs instead of restarting from page 1.
-- After a full active-window sweep completes, stored rows inside that window that were not seen during the sweep are pruned as stale.
+- Scheduled live-window sync now refreshes both:
+  - the current UTC month used by `/Home/Profile?monthOffset=0`
+  - each active contest window
+- Each live window persists a separate cursor so large windows continue across scheduled runs instead of restarting from page 1.
+- After a full live-window sweep completes, stored rows inside that window that were not seen during the sweep are pruned as stale.
 - Contact enrichment is based on a single selected associated contact per deal.
 - `FulfilledDateUtc` is taken from the selected associated contact's `forsaljningsdatum`.
 - Imported deal rows are stored in `HubSpotDealImports`.
 - Local user mapping is resolved directly from `SaljId` to the app username/user.
+- A configurable minimum deal amount now gates imported rows:
+  - rows with `Amount <= HubSpot.MinimumDealAmount` or `NULL` amount are skipped/removed
+  - current config is `HubSpot.MinimumDealAmount = 15000`
+- A one-off cleanup command now exists to purge already imported disqualified rows and rebuild active contest entries:
+  - `--hubspot-prune-disqualified-deals`
+  - dev wrapper: `scripts/prune_disqualified_hubspot_deals.sh`
+  - VPS command: `docker exec -i intranet-app-amftl3-app-1 sh -lc 'cd /app && dotnet WebApplication2.dll --hubspot-prune-disqualified-deals'`
 
 Related files:
 - `Services/HubSpot/HubSpotClient.cs`
 - `Services/HubSpot/HubSpotSyncService.cs`
 - `Services/HubSpot/HubSpotMappingService.cs`
 - `Models/HubSpotDealImport.cs`
+- `Program.cs`
 
 ### Operational note: VPS disk growth during HubSpot catch-up
 Status: Observed
@@ -152,10 +163,10 @@ Status: Observed limitation
 
 - `scripts/seed_superadmin_preview_deals.sh` seeds preview `HubSpotDealImports` rows with `SaljId = <superadmin username>`, currently `devsuperadmin`.
 - Those preview rows are intended to appear on `/Home/Profile` because profile filtering matches the logged-in username directly against `SaljId`.
-- Preview rows are not protected from the active-window stale-row pruning logic.
-- If a seeded preview row has `FulfilledDateUtc` inside an active contest window and is not re-seen by a later HubSpot sweep, it is treated as stale and removed.
+- Preview rows are not protected from live-window stale-row pruning logic.
+- If a seeded preview row has `FulfilledDateUtc` inside the current-month profile window or an active contest window and is not re-seen by a later HubSpot sweep, it is treated as stale and removed.
 - This means seeded preview deals can disappear automatically after scheduled sync runs even though the profile query itself is still correct.
-- The current prune logic assumes all rows inside the synced contest window are sync-owned HubSpot rows, which is not true for locally seeded preview data.
+- The current prune logic assumes all rows inside a synced live window are sync-owned HubSpot rows, which is not true for locally seeded preview data.
 
 Related files:
 - `scripts/seed_superadmin_preview_deals.sh`
@@ -183,9 +194,29 @@ Status: Implemented and validated
   - current and previous month filtering
   - fulfilled aggregation
   - lost-deal rendering set for the selected month
+- Pricing calculator tests cover:
+  - finance-option-specific provision totals for every invoice/finance option
+  - fixed inclusion of the selected finance option provision in total provision
 
 Validated command:
 - `dotnet test WebApplication2.Tests/WebApplication2.Tests.csproj --filter "FullyQualifiedName~HubSpot|FullyQualifiedName~HomeControllerProfileTests"`
+- `dotnet test WebApplication2.Tests/WebApplication2.Tests.csproj --filter HubSpotSyncServiceTests`
+- `dotnet test WebApplication2.Tests/WebApplication2.Tests.csproj --filter PurchasePricingServiceTests`
+
+## Pricing Calculator
+Status: Implemented
+
+- The pricing calculator now always includes the selected finance option provision in `TotalProvision`.
+- The UI checkbox for optionally including finance option provision has been removed.
+- `STL-Faktura`, `72Mån`, and `60Mån` contribute `0`.
+- `Svea-Faktura`, `36Mån`, `24Mån`, and `120MånRänta` contribute `500`.
+
+Related files:
+- `Services/Pricing/PurchasePricingService.cs`
+- `Services/Pricing/PurchasePricingRequest.cs`
+- `Services/Pricing/PurchasePricingResult.cs`
+- `Views/PricingModule/Index.cshtml`
+- `WebApplication2.Tests/Services/Pricing/PurchasePricingServiceTests.cs`
 
 ## Removed From Live Strategy
 

@@ -86,11 +86,6 @@
                 <div class="col-md-3"><label class="form-label">Glaskrossdetektor</label><input data-product="Glaskrossdetektor" type="number" class="form-control" value="0" min="0" step="1" /></div>
             </div>
 
-            <div class="form-check mb-3">
-                <input id="includeFinanceOptionProvision" class="form-check-input" type="checkbox" />
-                <label class="form-check-label" for="includeFinanceOptionProvision">Ta med finansalternativets provision i total provision</label>
-            </div>
-
             <button id="calculateBtn" type="button" class="btn btn-primary">Beräkna</button>
             <span id="errorText" class="text-danger ms-3"></span>
 
@@ -162,7 +157,6 @@
             bjudAmount: toNumber(document.getElementById('bjudInput').value),
             installationCost: installationRaw === '' ? null : toNumber(installationRaw),
             financeOption: document.getElementById('financeOption').value,
-            includeFinanceOptionProvisionInTotal: document.getElementById('includeFinanceOptionProvision').checked,
             quantities: quantities
         };
 

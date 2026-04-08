@@ -312,6 +312,227 @@ public class HubSpotSyncServiceTests
     }
 
     [Fact]
+    public async Task RunIncrementalSyncAsync_SkipsDealsAtOrBelowConfiguredMinimumAmount()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        await env.CreateUserAsync("5555", "5555@stl.nu");
+
+        var client = new FakeHubSpotClient(
+            dealPages:
+            [
+                new HubSpotDealsPageResult
+                {
+                    Deals =
+                    [
+                        new HubSpotDealRecord
+                        {
+                            ExternalDealId = "deal-at-threshold",
+                            SaljId = "5555",
+                            OwnerEmail = "5555@stl.nu",
+                            IsFulfilled = true,
+                            FulfilledDateUtc = DateTime.UtcNow,
+                            LastModifiedUtc = DateTime.UtcNow,
+                            Amount = 15000m,
+                            ContactKundstatus = "Klar kund",
+                            PayloadHash = "hash-at-threshold"
+                        },
+                        new HubSpotDealRecord
+                        {
+                            ExternalDealId = "deal-above-threshold",
+                            SaljId = "5555",
+                            OwnerEmail = "5555@stl.nu",
+                            IsFulfilled = true,
+                            FulfilledDateUtc = DateTime.UtcNow,
+                            LastModifiedUtc = DateTime.UtcNow,
+                            Amount = 15001m,
+                            ContactKundstatus = "Klar kund",
+                            PayloadHash = "hash-above-threshold"
+                        }
+                    ]
+                }
+            ]);
+
+        var sut = CreateSut(env, client, options => options.MinimumDealAmount = 15000m);
+
+        var result = await sut.RunIncrementalSyncAsync();
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.DealsImported);
+        Assert.Equal(1, result.DealsSkipped);
+        Assert.Equal(
+            new[] { "deal-above-threshold" },
+            (await env.Context.HubSpotDealImports.OrderBy(d => d.ExternalDealId).ToListAsync())
+                .Select(d => d.ExternalDealId)
+                .ToArray());
+    }
+
+    [Fact]
+    public async Task RunIncrementalSyncAsync_RemovesExistingDealWhenUpdatedAmountFallsBelowConfiguredMinimum()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        var user = await env.CreateUserAsync("5555", "5555@stl.nu");
+
+        env.Context.HubSpotDealImports.Add(new HubSpotDealImport
+        {
+            ExternalDealId = "deal-drops-below-threshold",
+            SaljId = "5555",
+            OwnerEmail = "5555@stl.nu",
+            OwnerUserId = user.Id,
+            IsFulfilled = true,
+            FulfilledDateUtc = DateTime.UtcNow,
+            Amount = 18000m,
+            ContactKundstatus = "Klar kund",
+            FirstSeenUtc = DateTime.UtcNow,
+            LastSeenUtc = DateTime.UtcNow
+        });
+        await env.Context.SaveChangesAsync();
+
+        var client = new FakeHubSpotClient(
+            dealPages:
+            [
+                new HubSpotDealsPageResult
+                {
+                    Deals =
+                    [
+                        new HubSpotDealRecord
+                        {
+                            ExternalDealId = "deal-drops-below-threshold",
+                            SaljId = "5555",
+                            OwnerEmail = "5555@stl.nu",
+                            IsFulfilled = true,
+                            FulfilledDateUtc = DateTime.UtcNow,
+                            LastModifiedUtc = DateTime.UtcNow,
+                            Amount = 14999m,
+                            ContactKundstatus = "Klar kund",
+                            PayloadHash = "hash-below-threshold"
+                        }
+                    ]
+                }
+            ]);
+
+        var sut = CreateSut(env, client, options => options.MinimumDealAmount = 15000m);
+
+        var result = await sut.RunIncrementalSyncAsync();
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.DealsUpdated);
+        Assert.Empty(await env.Context.HubSpotDealImports.ToListAsync());
+    }
+
+    [Fact]
+    public async Task PurgeDisqualifiedDealsAsync_RemovesRowsAtOrBelowConfiguredMinimum()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        await env.CreateUserAsync("5555", "5555@stl.nu");
+
+        env.Context.HubSpotDealImports.AddRange(
+            new HubSpotDealImport
+            {
+                ExternalDealId = "remove-null",
+                SaljId = "5555",
+                OwnerEmail = "5555@stl.nu",
+                IsFulfilled = true,
+                FulfilledDateUtc = DateTime.UtcNow,
+                Amount = null,
+                ContactKundstatus = "Klar kund",
+                FirstSeenUtc = DateTime.UtcNow,
+                LastSeenUtc = DateTime.UtcNow
+            },
+            new HubSpotDealImport
+            {
+                ExternalDealId = "remove-threshold",
+                SaljId = "5555",
+                OwnerEmail = "5555@stl.nu",
+                IsFulfilled = true,
+                FulfilledDateUtc = DateTime.UtcNow,
+                Amount = 15000m,
+                ContactKundstatus = "Klar kund",
+                FirstSeenUtc = DateTime.UtcNow,
+                LastSeenUtc = DateTime.UtcNow
+            },
+            new HubSpotDealImport
+            {
+                ExternalDealId = "keep-above-threshold",
+                SaljId = "5555",
+                OwnerEmail = "5555@stl.nu",
+                IsFulfilled = true,
+                FulfilledDateUtc = DateTime.UtcNow,
+                Amount = 15001m,
+                ContactKundstatus = "Klar kund",
+                FirstSeenUtc = DateTime.UtcNow,
+                LastSeenUtc = DateTime.UtcNow
+            });
+        await env.Context.SaveChangesAsync();
+
+        var sut = CreateSut(env, new FakeHubSpotClient(), options => options.MinimumDealAmount = 15000m);
+
+        var result = await sut.PurgeDisqualifiedDealsAsync();
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(2, result.DealsUpdated);
+        Assert.Equal(
+            new[] { "keep-above-threshold" },
+            (await env.Context.HubSpotDealImports.OrderBy(d => d.ExternalDealId).ToListAsync())
+                .Select(d => d.ExternalDealId)
+                .ToArray());
+    }
+
+    [Fact]
+    public async Task PurgeDisqualifiedDealsAsync_RecalculatesActiveContestEntries()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        var user = await env.CreateUserAsync("1234", "1234@stl.nu");
+
+        env.Context.Contests.Add(new Contest
+        {
+            Name = "Active Threshold Contest",
+            StartDate = DateTime.Now.AddDays(-1),
+            EndDate = DateTime.Now.AddDays(1),
+            IsActive = true,
+            CreatedDate = DateTime.Now
+        });
+
+        env.Context.HubSpotDealImports.AddRange(
+            new HubSpotDealImport
+            {
+                ExternalDealId = "counted-1",
+                SaljId = "1234",
+                OwnerEmail = "1234@stl.nu",
+                OwnerUserId = user.Id,
+                IsFulfilled = true,
+                FulfilledDateUtc = DateTime.UtcNow,
+                Amount = 20000m,
+                ContactKundstatus = "Klar kund",
+                FirstSeenUtc = DateTime.UtcNow,
+                LastSeenUtc = DateTime.UtcNow
+            },
+            new HubSpotDealImport
+            {
+                ExternalDealId = "removed-1",
+                SaljId = "1234",
+                OwnerEmail = "1234@stl.nu",
+                OwnerUserId = user.Id,
+                IsFulfilled = true,
+                FulfilledDateUtc = DateTime.UtcNow,
+                Amount = 12000m,
+                ContactKundstatus = "Klar kund",
+                FirstSeenUtc = DateTime.UtcNow,
+                LastSeenUtc = DateTime.UtcNow
+            });
+        await env.Context.SaveChangesAsync();
+
+        var sut = CreateSut(env, new FakeHubSpotClient(), options => options.MinimumDealAmount = 15000m);
+
+        var result = await sut.PurgeDisqualifiedDealsAsync();
+
+        Assert.True(result.Succeeded);
+
+        var contestEntry = await env.Context.ContestEntries.SingleAsync();
+        Assert.Equal(user.Id, contestEntry.UserId);
+        Assert.Equal(1, contestEntry.DealsCount);
+    }
+
+    [Fact]
     public async Task RunIncrementalSyncAsync_SkipsDealWhenNoSaljId()
     {
         using var env = TestIdentityEnvironment.Create();
@@ -605,10 +826,10 @@ public class HubSpotSyncServiceTests
             OwnerEmail = "2875@stl.nu",
             OwnerUserId = user.Id,
             IsFulfilled = true,
-            FulfilledDateUtc = DateTime.UtcNow,
+            FulfilledDateUtc = DateTime.UtcNow.AddMonths(-1),
             ContactKundstatus = "Annullerat",
-            FirstSeenUtc = DateTime.UtcNow,
-            LastSeenUtc = DateTime.UtcNow
+            FirstSeenUtc = DateTime.UtcNow.AddMonths(-1),
+            LastSeenUtc = DateTime.UtcNow.AddMonths(-1)
         });
         await env.Context.SaveChangesAsync();
 
@@ -816,54 +1037,62 @@ public class HubSpotSyncServiceTests
         var firstSyncTime = DateTime.UtcNow.AddMinutes(-10);
         var secondSyncTime = DateTime.UtcNow;
 
+        var incrementalCallCount = 0;
         var client = new FakeHubSpotClient(
-            dealPages:
-            [
-                new HubSpotDealsPageResult
+            getFulfilledDeals: (_, _, _) =>
+            {
+                incrementalCallCount++;
+
+                return incrementalCallCount switch
                 {
-                    Deals =
-                    [
-                        new HubSpotDealRecord
-                        {
-                            ExternalDealId = "deal-9",
-                            OwnerId = "owner-9",
-                            OwnerEmail = "4444@stl.nu",
-                            SaljId = "4444",
-                            DealName = "Original",
-                            FulfilledDateUtc = firstSyncTime,
-                            LastModifiedUtc = firstSyncTime,
-                            Amount = 100m,
-                            SellerProvision = 10m,
-                            CurrencyCode = "SEK",
-                            DealStage = "closedwon",
-                            ContactKundstatus = "Klar kund",
-                            PayloadHash = "payload-v1"
-                        }
-                    ]
-                },
-                new HubSpotDealsPageResult
-                {
-                    Deals =
-                    [
-                        new HubSpotDealRecord
-                        {
-                            ExternalDealId = "deal-9",
-                            OwnerId = "owner-9",
-                            OwnerEmail = "4444@stl.nu",
-                            SaljId = "4444",
-                            DealName = "Updated",
-                            FulfilledDateUtc = secondSyncTime,
-                            LastModifiedUtc = secondSyncTime,
-                            Amount = 250m,
-                            SellerProvision = 25m,
-                            CurrencyCode = "SEK",
-                            DealStage = "closedwon",
-                            ContactKundstatus = "Klar kund",
-                            PayloadHash = "payload-v2"
-                        }
-                    ]
-                }
-            ]);
+                    1 => new HubSpotDealsPageResult
+                    {
+                        Deals =
+                        [
+                            new HubSpotDealRecord
+                            {
+                                ExternalDealId = "deal-9",
+                                OwnerId = "owner-9",
+                                OwnerEmail = "4444@stl.nu",
+                                SaljId = "4444",
+                                DealName = "Original",
+                                FulfilledDateUtc = firstSyncTime,
+                                LastModifiedUtc = firstSyncTime,
+                                Amount = 100m,
+                                SellerProvision = 10m,
+                                CurrencyCode = "SEK",
+                                DealStage = "closedwon",
+                                ContactKundstatus = "Klar kund",
+                                PayloadHash = "payload-v1"
+                            }
+                        ]
+                    },
+                    2 => new HubSpotDealsPageResult
+                    {
+                        Deals =
+                        [
+                            new HubSpotDealRecord
+                            {
+                                ExternalDealId = "deal-9",
+                                OwnerId = "owner-9",
+                                OwnerEmail = "4444@stl.nu",
+                                SaljId = "4444",
+                                DealName = "Updated",
+                                FulfilledDateUtc = secondSyncTime,
+                                LastModifiedUtc = secondSyncTime,
+                                Amount = 250m,
+                                SellerProvision = 25m,
+                                CurrencyCode = "SEK",
+                                DealStage = "closedwon",
+                                ContactKundstatus = "Klar kund",
+                                PayloadHash = "payload-v2"
+                            }
+                        ]
+                    },
+                    _ => new HubSpotDealsPageResult()
+                };
+            },
+            searchDealsByClosedDateRange: (_, _, _, _) => new HubSpotDealsPageResult());
 
         var sut = CreateSut(env, client);
 
@@ -1061,6 +1290,114 @@ public class HubSpotSyncServiceTests
         Assert.True(secondRun.Succeeded);
         Assert.Equal("fresh-cursor", secondCallCursor);
         Assert.Equal(firstCallModifiedSinceUtc, secondCallModifiedSinceUtc);
+    }
+
+    [Fact]
+    public async Task RunIncrementalSyncAsync_RefreshesExistingCurrentMonthDeal_FromLiveMonthWindow()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        var user = await env.CreateUserAsync("2875", "2875@stl.nu");
+
+        var nowUtc = DateTime.UtcNow;
+        var monthStartUtc = new DateTime(nowUtc.Year, nowUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+        var monthEndUtc = monthStartUtc.AddMonths(1).AddTicks(-1);
+        var existingDealDateUtc = monthStartUtc.AddDays(2);
+
+        env.Context.HubSpotDealImports.Add(new HubSpotDealImport
+        {
+            ExternalDealId = "current-month-live-refresh",
+            SaljId = "2875",
+            OwnerEmail = "2875@stl.nu",
+            OwnerUserId = user.Id,
+            IsFulfilled = true,
+            FulfilledDateUtc = existingDealDateUtc,
+            ContactKundstatus = "Klar kund",
+            FirstSeenUtc = existingDealDateUtc,
+            LastSeenUtc = existingDealDateUtc
+        });
+        await env.Context.SaveChangesAsync();
+
+        var client = new FakeHubSpotClient(
+            getFulfilledDeals: (_, _, _) => new HubSpotDealsPageResult(),
+            searchDealsByClosedDateRange: (closedDateStartUtc, closedDateEndUtc, _, _) =>
+            {
+                Assert.Equal(monthStartUtc, closedDateStartUtc);
+                Assert.Equal(monthEndUtc, closedDateEndUtc);
+
+                return new HubSpotDealsPageResult
+                {
+                    Deals =
+                    [
+                        new HubSpotDealRecord
+                        {
+                            ExternalDealId = "current-month-live-refresh",
+                            SaljId = "2875",
+                            OwnerEmail = "2875@stl.nu",
+                            IsFulfilled = false,
+                            FulfilledDateUtc = existingDealDateUtc,
+                            LastModifiedUtc = nowUtc,
+                            ContactKundstatus = "Annullerat",
+                            PayloadHash = "live-month-refresh"
+                        }
+                    ]
+                };
+            });
+
+        var sut = CreateSut(env, client);
+
+        var result = await sut.RunIncrementalSyncAsync();
+
+        Assert.True(result.Succeeded);
+
+        var refreshedDeal = await env.Context.HubSpotDealImports
+            .SingleAsync(d => d.ExternalDealId == "current-month-live-refresh");
+
+        Assert.False(refreshedDeal.IsFulfilled);
+        Assert.Equal("Annullerat", refreshedDeal.ContactKundstatus);
+    }
+
+    [Fact]
+    public async Task RunIncrementalSyncAsync_PrunesStaleDealsAfterCompletedCurrentMonthLiveSweep()
+    {
+        using var env = TestIdentityEnvironment.Create();
+        var user = await env.CreateUserAsync("2875", "2875@stl.nu");
+
+        var nowUtc = DateTime.UtcNow;
+        var monthStartUtc = new DateTime(nowUtc.Year, nowUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+        var monthEndUtc = monthStartUtc.AddMonths(1).AddTicks(-1);
+        var staleDealDateUtc = monthStartUtc.AddDays(1);
+
+        env.Context.HubSpotDealImports.Add(new HubSpotDealImport
+        {
+            ExternalDealId = "stale-current-month-deal",
+            SaljId = "2875",
+            OwnerEmail = "2875@stl.nu",
+            OwnerUserId = user.Id,
+            IsFulfilled = true,
+            FulfilledDateUtc = staleDealDateUtc,
+            ContactKundstatus = "Nyregistrerad",
+            FirstSeenUtc = staleDealDateUtc,
+            LastSeenUtc = staleDealDateUtc
+        });
+        await env.Context.SaveChangesAsync();
+
+        var client = new FakeHubSpotClient(
+            getFulfilledDeals: (_, _, _) => new HubSpotDealsPageResult(),
+            searchDealsByClosedDateRange: (closedDateStartUtc, closedDateEndUtc, _, _) =>
+            {
+                Assert.Equal(monthStartUtc, closedDateStartUtc);
+                Assert.Equal(monthEndUtc, closedDateEndUtc);
+                return new HubSpotDealsPageResult();
+            });
+
+        var sut = CreateSut(env, client);
+
+        var result = await sut.RunIncrementalSyncAsync();
+
+        Assert.True(result.Succeeded);
+        Assert.Empty(await env.Context.HubSpotDealImports
+            .Where(d => d.ExternalDealId == "stale-current-month-deal")
+            .ToListAsync());
     }
 
     [Fact]

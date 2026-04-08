@@ -98,5 +98,8 @@ namespace WebApplication2.Services.HubSpot
 
         [Required]
         public string UsernameEmailDomain { get; set; } = "stl.nu";
+
+        [Range(0, double.MaxValue)]
+        public decimal MinimumDealAmount { get; set; }
     }
 }

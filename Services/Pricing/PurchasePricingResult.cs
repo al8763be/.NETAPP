@@ -24,7 +24,6 @@ public class PurchasePricingResult
 
     public string FinanceOption { get; set; } = string.Empty;
     public decimal FinanceOptionProvision { get; set; }
-    public bool IncludeFinanceOptionProvisionInTotal { get; set; }
 
     public decimal TotalProvision { get; set; }
 

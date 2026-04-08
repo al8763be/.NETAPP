@@ -97,16 +97,22 @@ public class PurchasePricingServiceTests
         Assert.Equal(2300m, result.TotalProvision);
     }
 
-    [Fact]
-    public void Calculate_CanIncludeFinanceOptionProvision_WhenRequested()
+    [Theory]
+    [InlineData("STL-Faktura", 0)]
+    [InlineData("Svea-Faktura", 500)]
+    [InlineData("72Mån", 0)]
+    [InlineData("60Mån", 0)]
+    [InlineData("36Mån", 500)]
+    [InlineData("24Mån", 500)]
+    [InlineData("120MånRänta", 500)]
+    public void Calculate_AlwaysIncludesSelectedFinanceOptionProvisionInTotal(string financeOption, decimal expectedProvision)
     {
         var request = new PurchasePricingRequest
         {
             CustomerAge = 68,
             BjudAmount = 0,
             InstallationCost = 0,
-            FinanceOption = "Svea-Faktura",
-            IncludeFinanceOptionProvisionInTotal = true,
+            FinanceOption = financeOption,
             Quantities = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
             {
                 ["Startpaket"] = 1
@@ -115,8 +121,8 @@ public class PurchasePricingServiceTests
 
         var result = _sut.Calculate(request);
 
-        Assert.Equal(500m, result.FinanceOptionProvision);
-        Assert.Equal(3000m, result.TotalProvision);
+        Assert.Equal(expectedProvision, result.FinanceOptionProvision);
+        Assert.Equal(2500m + expectedProvision, result.TotalProvision);
     }
 
     [Fact]
