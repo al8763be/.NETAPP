@@ -4,7 +4,7 @@ services:
     environment:
       ACCEPT_EULA: "Y"
       MSSQL_SA_PASSWORD: "${SQL_SA_PASSWORD:?Set SQL_SA_PASSWORD in your production env file}"
-      MSSQL_PID: "Production"
+      MSSQL_PID: "Developer"
     volumes:
       - netapp_sql_data:/var/opt/mssql
     healthcheck:
