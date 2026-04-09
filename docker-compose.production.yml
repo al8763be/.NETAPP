@@ -1,0 +1,60 @@
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${SQL_SA_PASSWORD:?Set SQL_SA_PASSWORD in your production env file}"
+      MSSQL_PID: "Production"
+    volumes:
+      - netapp_sql_data:/var/opt/mssql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$${MSSQL_SA_PASSWORD}\" -C -Q \"SELECT 1\" || exit 1"
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Production"
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+      PORT: "8080"
+      AllowedHosts: "${AllowedHosts:-*}"
+      Database__AutoMigrateOnStartup: "${Database__AutoMigrateOnStartup:-false}"
+
+      Security__DefaultAdminUsername: "${Security__DefaultAdminUsername:-admin}"
+      Security__DefaultAdminPassword: "${Security__DefaultAdminPassword:?Set Security__DefaultAdminPassword in your production env file}"
+      Security__DefaultAdminEmail: "${Security__DefaultAdminEmail:-admin@company.com}"
+
+      ConnectionStrings__DefaultConnection: "Server=db,1433;Database=${SQL_DATABASE:-StlForum};User Id=sa;Password=${SQL_SA_PASSWORD};Encrypt=False;TrustServerCertificate=True;MultipleActiveResultSets=True"
+
+      HubSpot__Enabled: "${HubSpot__Enabled:-false}"
+      HubSpot__BaseUrl: "${HubSpot__BaseUrl:-https://api.hubapi.com}"
+      HubSpot__AccessToken: "${HubSpot__AccessToken:-}"
+      HubSpot__SyncCron: "${HubSpot__SyncCron:-0 */15 * * * *}"
+
+      EmailSettings__SmtpHost: "${EmailSettings__SmtpHost:-}"
+      EmailSettings__SmtpUsername: "${EmailSettings__SmtpUsername:-}"
+      EmailSettings__SmtpPassword: "${EmailSettings__SmtpPassword:-}"
+      EmailSettings__SmtpPort: "${EmailSettings__SmtpPort:-587}"
+      EmailSettings__FromEmail: "${EmailSettings__FromEmail:-}"
+      EmailSettings__FromName: "${EmailSettings__FromName:-STL Forum}"
+      EmailSettings__DriftfragaEmail: "${EmailSettings__DriftfragaEmail:-}"
+      EmailSettings__SaljfragaEmail: "${EmailSettings__SaljfragaEmail:-}"
+    restart: unless-stopped
+
+volumes:
+  netapp_sql_data:
