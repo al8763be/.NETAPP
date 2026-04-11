@@ -1,12 +1,12 @@
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using WebApplication2.Attributes;
 using WebApplication2.Services.Pricing;
 
 namespace WebApplication2.Controllers;
 
 [ApiController]
 [Route("api/pricing")]
-[Authorize]
+[ApiKey]
 [IgnoreAntiforgeryToken]
 public class PricingController : ControllerBase
 {

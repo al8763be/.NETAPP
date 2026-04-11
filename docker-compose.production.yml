@@ -56,6 +56,8 @@ services:
       EmailSettings__FromName: "${EmailSettings__FromName:-STL Forum}"
       EmailSettings__DriftfragaEmail: "${EmailSettings__DriftfragaEmail:-}"
       EmailSettings__SaljfragaEmail: "${EmailSettings__SaljfragaEmail:-}"
+
+      ApiKey: "${ApiKey:?Set ApiKey in your production env file}"
     restart: unless-stopped
 
 volumes:
