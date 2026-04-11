@@ -10,6 +10,13 @@ public class ApiKeyAttribute : Attribute, IAuthorizationFilter
 
     public void OnAuthorization(AuthorizationFilterContext context)
     {
+        // Allow logged-in users (e.g. the browser calculator UI)
+        if (context.HttpContext.User.Identity?.IsAuthenticated == true)
+        {
+            return;
+        }
+
+        // Allow external callers with a valid API key (e.g. Flask)
         var config = context.HttpContext.RequestServices.GetRequiredService<IConfiguration>();
         var expectedKey = config["ApiKey"];
 
